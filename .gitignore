@@ -1,0 +1,107 @@
+############################
+# Maven
+############################
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+
+############################
+# Java
+############################
+*.class
+*.log
+*.ctxt
+*.jar
+*.war
+*.ear
+
+############################
+# Spring Boot
+############################
+*.pid
+*.seed
+*.pid.lock
+
+############################
+# IDE - IntelliJ IDEA
+############################
+.idea/
+*.iml
+out/
+
+############################
+# IDE - Eclipse / STS
+############################
+.project
+.classpath
+.settings/
+.springBeans
+.sts4-cache/
+
+############################
+# VS Code
+############################
+.vscode/
+
+############################
+# macOS
+############################
+.DS_Store
+
+############################
+# Linux
+############################
+*~
+
+############################
+# Windows
+############################
+Thumbs.db
+
+############################
+# Logs
+############################
+logs/
+*.log
+
+############################
+# Environment files
+############################
+.env
+.env.*
+!.env.example
+
+############################
+# Application secrets
+############################
+application-local.properties
+application-local.yml
+application-prod.properties
+application-prod.yml
+
+############################
+# Docker
+############################
+docker-data/
+
+############################
+# Test reports
+############################
+surefire-reports/
+failsafe-reports/
+
+############################
+# JaCoCo
+############################
+jacoco.exec
+/site/
+
+############################
+# Misc
+############################
+*.swp
+*.swo
