@@ -24,8 +24,8 @@ import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
 import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.enums.OrderStatus;
-import com.orders.messages.orders_demo.exceptions.CustomerNotFoundException;
-import com.orders.messages.orders_demo.exceptions.OrderNotFoundException;
+import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
 import com.orders.messages.orders_demo.repositories.CustomerRepository;
 import com.orders.messages.orders_demo.repositories.OrderRepository;
 
@@ -102,11 +102,11 @@ public class OrderServiceTest {
     @Test
     public void cancelOrder_WhenOrderExists_ShouldCancelOrder() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        orderService.cancelOrder(orderId);
+        Order result = orderService.cancelOrder(orderId);
 
-        assertEquals(OrderStatus.CANCELLED, fakeOrder.getStatus());
-        verify(orderRepository).save(fakeOrder);
+        assertEquals(OrderStatus.CANCELLED, result.getStatus());
     }
 
     @Test
@@ -117,11 +117,11 @@ public class OrderServiceTest {
     @Test
     public void payOrder_WhenOrderExists_ShouldMarkOrderAsPaid() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        orderService.payOrder(orderId);
+        Order result = orderService.payOrder(orderId);
 
-        assertEquals(OrderStatus.PAID, fakeOrder.getStatus());
-        verify(orderRepository).save(fakeOrder);
+        assertEquals(OrderStatus.PAID, result.getStatus());
     }
 
     @Test
@@ -132,11 +132,11 @@ public class OrderServiceTest {
     @Test
     public void expireOrder_WhenOrderExists_ShouldExpireOrder() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        orderService.expireOrder(orderId);
+        Order result = orderService.expireOrder(orderId);
 
-        assertEquals(OrderStatus.EXPIRED, fakeOrder.getStatus());
-        verify(orderRepository).save(fakeOrder);
+        assertEquals(OrderStatus.EXPIRED, result.getStatus());
     }
 
     @Test
@@ -148,11 +148,11 @@ public class OrderServiceTest {
     public void refundOrder_WhenOrderExists_ShouldRefundOrder() {
         fakeOrder.markAsPaid();
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        orderService.refundOrder(orderId);
+        Order result = orderService.refundOrder(orderId);
 
-        assertEquals(OrderStatus.REFUNDED, fakeOrder.getStatus());
-        verify(orderRepository).save(fakeOrder);
+        assertEquals(OrderStatus.REFUNDED, result.getStatus());
     }
 
     @Test

@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service;
 import com.orders.messages.orders_demo.dtos.request.CreateOrderRequest;
 import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
-import com.orders.messages.orders_demo.exceptions.CustomerNotFoundException;
-import com.orders.messages.orders_demo.exceptions.OrderNotFoundException;
+import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
 import com.orders.messages.orders_demo.mappers.OrderMapper;
 import com.orders.messages.orders_demo.repositories.CustomerRepository;
 import com.orders.messages.orders_demo.repositories.OrderRepository;
@@ -39,40 +39,40 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    public void cancelOrder(UUID id) {
+    public Order cancelOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
 
         order.cancelOrder();
 
-        orderRepository.save(order);
+        return orderRepository.save(order);
     }
 
-    public void payOrder(UUID id) {
+    public Order payOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
 
         order.markAsPaid();
 
-        orderRepository.save(order);
+        return orderRepository.save(order);
     }
 
-    public void expireOrder(UUID id) {
+    public Order expireOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
 
         order.expire();
 
-        orderRepository.save(order);
+        return orderRepository.save(order);
     }
 
-    public void refundOrder(UUID id) {
+    public Order refundOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
 
         order.refund();
 
-        orderRepository.save(order);
+        return orderRepository.save(order);
     }
 
 }

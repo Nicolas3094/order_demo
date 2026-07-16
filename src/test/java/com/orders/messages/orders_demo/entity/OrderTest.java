@@ -11,8 +11,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.enums.OrderStatus;
-import com.orders.messages.orders_demo.exceptions.InvalidOrderStateException;
-import com.orders.messages.orders_demo.exceptions.OrderAlreadyCancelledException;
+import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderTest {

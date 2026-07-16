@@ -8,9 +8,9 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import com.orders.messages.orders_demo.enums.OrderStatus;
-import com.orders.messages.orders_demo.exceptions.InvalidOrderStateException;
-import com.orders.messages.orders_demo.exceptions.OrderAlreadyCancelledException;
-import com.orders.messages.orders_demo.exceptions.OrderAlreadyPaidException;
+import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyPaidException;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

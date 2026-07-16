@@ -1,4 +1,4 @@
-package com.orders.messages.orders_demo.exceptions;
+package com.orders.messages.orders_demo.exceptions.customer;
 
 public class CustomerStateException extends RuntimeException {
 
