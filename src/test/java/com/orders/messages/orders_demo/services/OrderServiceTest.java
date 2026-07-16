@@ -2,10 +2,13 @@ package com.orders.messages.orders_demo.services;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,10 +19,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.orders.messages.orders_demo.dtos.request.CreateOrderRequest;
 import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
+import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.enums.OrderStatus;
+import com.orders.messages.orders_demo.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.exceptions.OrderNotFoundException;
+import com.orders.messages.orders_demo.mappers.OrderMapper;
+import com.orders.messages.orders_demo.repositories.CustomerRepository;
 import com.orders.messages.orders_demo.repositories.OrderRepository;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +38,8 @@ public class OrderServiceTest {
 
     @Mock
     private OrderRepository orderRepository;
+    @Mock
+    private CustomerRepository customerRepository;
 
     @InjectMocks
     private OrderService orderService;
@@ -56,12 +66,38 @@ public class OrderServiceTest {
     }
 
     @Test
-    public void createOrder_ShouldSaveOrder() {
+    public void createOrder_WhenCustomerExists_ShouldSaveOrder() {
+        UUID customerId = UUID.randomUUID();
+        Customer customer = new Customer(customerId, "email", "name", CustomerStatus.ACTIVE, Instant.now());
+        CreateOrderRequest orderRequest = CreateOrderRequest.builder()
+                .setCustomerId(customerId)
+                .setCurrency("currency")
+                .setAmountTotal(new BigDecimal(123))
+                .build();
+        when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        orderService.createOrder(fakeOrder);
+        Order result = orderService.createOrder(orderRequest);
 
-        verify(orderRepository).save(fakeOrder);
+        assertEquals(customer, result.getCustomer());
+        assertEquals(orderRequest.currency(), result.getCurrency());
+        assertEquals(orderRequest.amountTotal(), result.getAmountTotal());
+        assertEquals(OrderStatus.PENDING_PAYMENT, result.getStatus());
+    }
 
+    @Test
+    public void createOrder_WhenCustomerNotExists_ShouldThrowCustomerNotFoundException() {
+        UUID customerId = UUID.randomUUID();
+        CreateOrderRequest orderRequest = CreateOrderRequest.builder()
+                .setCustomerId(customerId)
+                .setCurrency("currency")
+                .setAmountTotal(new BigDecimal(123))
+                .build();
+
+        Exception result = assertThrows(CustomerNotFoundException.class, () -> orderService.createOrder(orderRequest));
+
+        assertEquals("Order could not be found.", result.getMessage());
+        verify(orderRepository, never()).save(any(Order.class));
     }
 
     @Test

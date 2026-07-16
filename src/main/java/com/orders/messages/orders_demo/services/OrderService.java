@@ -2,20 +2,26 @@ package com.orders.messages.orders_demo.services;
 
 import java.util.UUID;
 
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 
+import com.orders.messages.orders_demo.dtos.request.CreateOrderRequest;
+import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
+import com.orders.messages.orders_demo.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.exceptions.OrderNotFoundException;
+import com.orders.messages.orders_demo.mappers.OrderMapper;
+import com.orders.messages.orders_demo.repositories.CustomerRepository;
 import com.orders.messages.orders_demo.repositories.OrderRepository;
 
 @Service
 public class OrderService {
 
     private final OrderRepository orderRepository;
+    private final CustomerRepository customerRepository;
 
-    public OrderService(OrderRepository repository) {
+    public OrderService(OrderRepository repository, CustomerRepository customerRepository) {
         this.orderRepository = repository;
+        this.customerRepository = customerRepository;
     }
 
     public Order getOrder(UUID id) {
@@ -24,8 +30,13 @@ public class OrderService {
 
     }
 
-    public void createOrder(@NonNull Order newOrder) {
-        orderRepository.save(newOrder);
+    public Order createOrder(CreateOrderRequest createOrderRequest) {
+        Customer customer = customerRepository.findById(createOrderRequest.customerId())
+                .orElseThrow(CustomerNotFoundException::new);
+
+        Order order = OrderMapper.toEntity(createOrderRequest, customer);
+
+        return orderRepository.save(order);
     }
 
     public void cancelOrder(UUID id) {

@@ -15,6 +15,10 @@ public record CreateOrderRequest(
         String currency,
         BigDecimal amountTotal) {
 
+    public static Builder builder() {
+        return new Builder();
+    }
+
     public static final class Builder {
         private UUID customerId;
         private String currency;

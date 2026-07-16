@@ -49,6 +49,14 @@ public class Customer {
         this.status = CustomerStatus.ACTIVE;
     }
 
+    public Customer(UUID id, String email, String name, CustomerStatus status, Instant createdAt) {
+        this.id = id;
+        this.email = email;
+        this.name = name;
+        this.status = status;
+        this.createdAt = createdAt;
+    }
+
     public UUID getId() {
         return id;
     }
