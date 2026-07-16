@@ -8,15 +8,15 @@ import com.orders.messages.orders_demo.dtos.response.OrderResponse;
 import com.orders.messages.orders_demo.mappers.OrderMapper;
 import com.orders.messages.orders_demo.services.OrderService;
 
+import jakarta.validation.Valid;
+
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -31,15 +31,14 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderResponse> getOrder(@RequestParam UUID id) {
+    public ResponseEntity<OrderResponse> getOrder(@PathVariable UUID id) {
         return ResponseEntity.ok(
                 OrderMapper.toResponse(
                         orderService.getOrder(id)));
-
     }
 
     @PostMapping
-    public ResponseEntity<OrderResponse> createOrder(@RequestBody @Validated CreateOrderRequest createOrderRequest) {
+    public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody CreateOrderRequest createOrderRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(OrderMapper.toResponse(
                         orderService.createOrder(createOrderRequest)));

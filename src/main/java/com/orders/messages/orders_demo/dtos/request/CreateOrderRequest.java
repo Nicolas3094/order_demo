@@ -3,6 +3,10 @@ package com.orders.messages.orders_demo.dtos.request;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+
 /**
  * Request payload used to create a new order.
  *
@@ -11,9 +15,9 @@ import java.util.UUID;
  * @param amountTotal total monetary amount of the order.
  */
 public record CreateOrderRequest(
-        UUID customerId,
-        String currency,
-        BigDecimal amountTotal) {
+        @NotNull UUID customerId,
+        @NotBlank String currency,
+        @Positive BigDecimal amountTotal) {
 
     public static Builder builder() {
         return new Builder();
