@@ -26,7 +26,6 @@ import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.mappers.OrderMapper;
 import com.orders.messages.orders_demo.repositories.CustomerRepository;
 import com.orders.messages.orders_demo.repositories.OrderRepository;
 
