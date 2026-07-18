@@ -115,34 +115,22 @@ public class Order {
 
     public void refund() {
         switch (status) {
-            case CANCELLED:
-                throw new OrderAlreadyCancelledException();
-            case PENDING_PAYMENT:
-                throw new InvalidOrderStateException(
-                        "Only paid orders can be refunded.");
-            case EXPIRED:
-                throw new InvalidOrderStateException("Expired orders cannot be modified.");
-            case PAID:
-                status = OrderStatus.REFUNDED;
-                break;
-            default:
-                throw new InvalidOrderStateException("Unknown order state");
+            case CANCELLED -> throw new OrderAlreadyCancelledException();
+            case PENDING_PAYMENT -> throw new InvalidOrderStateException(
+                    "Only paid orders can be refunded.");
+            case EXPIRED -> throw new InvalidOrderStateException("Expired orders cannot be modified.");
+            case PAID -> status = OrderStatus.REFUNDED;
+            default -> throw new InvalidOrderStateException("Unknown order state");
         }
     }
 
     private void changeStatusFromPending(OrderStatus newStatus) {
         switch (status) {
-            case CANCELLED:
-                throw new OrderAlreadyCancelledException();
-            case PENDING_PAYMENT:
-                status = newStatus;
-                break;
-            case EXPIRED:
-                throw new InvalidOrderStateException("Expired orders cannot be modified.");
-            case PAID:
-                throw new OrderAlreadyPaidException();
-            default:
-                throw new InvalidOrderStateException("Unknown order state");
+            case CANCELLED -> throw new OrderAlreadyCancelledException();
+            case PENDING_PAYMENT -> status = newStatus;
+            case EXPIRED -> throw new InvalidOrderStateException("Expired orders cannot be modified.");
+            case PAID -> throw new OrderAlreadyPaidException();
+            default -> throw new InvalidOrderStateException("Unknown order state");
         }
     }
 
