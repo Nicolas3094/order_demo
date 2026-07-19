@@ -29,21 +29,21 @@ public class OrderControllerTest {
     @MockitoBean
     private OrderService orderService;
 
-    private Customer customer;
+    private static final String APPLICATION_JSON = "application/json";
 
     @Test
     public void getOrder_ShouldReturn200() throws Exception {
         UUID customerId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = new Order(
-                customer = new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE, Instant.now()),
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE, Instant.now()),
                 "MXN",
                 new BigDecimal(123));
         when(orderService.getOrder(orderId)).thenReturn(order);
 
         mvc.perform(get("/api/v1/orders/{id}", orderId)).andExpect(status().isOk())
-                .andExpect(content().contentType("application/json"))
-                .andExpect(jsonPath("$.customerId").value(customer.getId().toString()))
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
                 .andExpect(jsonPath("$.currency").value("MXN"))
                 .andExpect(jsonPath("$.amountTotal").value(123.00))
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
@@ -57,7 +57,7 @@ public class OrderControllerTest {
 
         mvc.perform(get("/api/v1/orders/{id}", orderId))
                 .andExpect(status().isNotFound())
-                .andExpect(content().contentType("application/json"))
+                .andExpect(content().contentType(APPLICATION_JSON))
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.message").value("Order not found."))
