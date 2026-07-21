@@ -1,7 +1,6 @@
 package com.orders.messages.orders_demo.controllers;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -365,7 +364,7 @@ public class OrderControllerTest {
     }
 
     private static Customer createCustomer(UUID customerId) {
-        return new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE, Instant.now());
+        return new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE);
     }
 
     private static Order createPendingOrder(UUID customerId) {

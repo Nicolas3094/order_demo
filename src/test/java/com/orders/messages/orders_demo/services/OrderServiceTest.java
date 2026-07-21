@@ -1,7 +1,6 @@
 package com.orders.messages.orders_demo.services;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -66,7 +65,7 @@ public class OrderServiceTest {
     @Test
     public void createOrder_WhenCustomerExists_ShouldSaveOrder() {
         UUID customerId = UUID.randomUUID();
-        Customer customer = new Customer(customerId, "email", "name", CustomerStatus.ACTIVE, Instant.now());
+        Customer customer = new Customer(customerId, "email", "name", CustomerStatus.ACTIVE);
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
                 .setCustomerId(customerId)
                 .setCurrency("currency")
