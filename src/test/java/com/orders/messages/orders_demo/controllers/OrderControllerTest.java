@@ -253,17 +253,51 @@ public class OrderControllerTest {
 
     @Test
     public void payOrder_ShouldReturn200() throws Exception {
+        UUID customerId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order order = new Order(
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE,
+                        Instant.now()),
+                "MXN",
+                new BigDecimal(123));
+        when(orderService.payOrder(orderId)).thenReturn(order);
 
+        mvc.perform(patch("/api/v1/orders/{id}/pay", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$.currency").value("MXN"))
+                .andExpect(jsonPath("$.amountTotal").value(123.00))
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
     }
 
     @Test
     public void payOrder_ShouldReturn404() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(orderService.payOrder(orderId)).thenThrow(new OrderNotFoundException());
 
+        mvc.perform(patch("/api/v1/orders/{id}/pay", orderId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Order could not be found."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/pay"));
     }
 
-    @Test
-    public void payOrder_ShouldReturn409() throws Exception {
+    @ParameterizedTest
+    @MethodSource("conflictExceptions")
+    public void payOrder_ShouldReturn409(Exception exception, String message) throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(orderService.payOrder(orderId)).thenThrow(exception);
 
+        mvc.perform(patch("/api/v1/orders/{id}/pay", orderId))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").value(message))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/pay"));
     }
 
     @Test
