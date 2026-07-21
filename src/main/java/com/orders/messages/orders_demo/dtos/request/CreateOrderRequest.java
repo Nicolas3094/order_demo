@@ -15,9 +15,9 @@ import jakarta.validation.constraints.Positive;
  * @param amountTotal total monetary amount of the order.
  */
 public record CreateOrderRequest(
-        @NotNull UUID customerId,
-        @NotBlank String currency,
-        @Positive BigDecimal amountTotal) {
+        @NotNull(message = "Customer id is required.") UUID customerId,
+        @NotBlank(message = "Currency is required.") String currency,
+        @Positive(message = "Amount must be greater than zero.") BigDecimal amountTotal) {
 
     public static Builder builder() {
         return new Builder();
