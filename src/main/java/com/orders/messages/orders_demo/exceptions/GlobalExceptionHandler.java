@@ -1,9 +1,12 @@
 package com.orders.messages.orders_demo.exceptions;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -87,9 +90,10 @@ public class GlobalExceptionHandler {
             MethodArgumentNotValidException e,
             HttpServletRequest request) {
 
-        String message = e.getBindingResult()
-                .getFieldError()
-                .getDefaultMessage();
+        String message = Optional.ofNullable(e.getBindingResult())
+                .map(BindingResult::getFieldError)
+                .map(FieldError::getDefaultMessage)
+                .orElse("Bad request.");
 
         ErrorResponse response = new ErrorResponse(
                 Instant.now(),
