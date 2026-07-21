@@ -10,6 +10,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyExpiredException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyPaidException;
 
 import jakarta.persistence.Entity;
@@ -118,7 +119,7 @@ public class Order {
             case CANCELLED -> throw new OrderAlreadyCancelledException();
             case PENDING_PAYMENT -> throw new InvalidOrderStateException(
                     "Only paid orders can be refunded.");
-            case EXPIRED -> throw new InvalidOrderStateException("Expired orders cannot be modified.");
+            case EXPIRED -> throw new OrderAlreadyExpiredException();
             case PAID -> status = OrderStatus.REFUNDED;
             default -> throw new InvalidOrderStateException("Unknown order state");
         }
@@ -128,7 +129,7 @@ public class Order {
         switch (status) {
             case CANCELLED -> throw new OrderAlreadyCancelledException();
             case PENDING_PAYMENT -> status = newStatus;
-            case EXPIRED -> throw new InvalidOrderStateException("Expired orders cannot be modified.");
+            case EXPIRED -> throw new OrderAlreadyExpiredException();
             case PAID -> throw new OrderAlreadyPaidException();
             default -> throw new InvalidOrderStateException("Unknown order state");
         }

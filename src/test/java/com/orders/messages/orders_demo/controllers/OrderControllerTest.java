@@ -29,6 +29,7 @@ import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyExpiredException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
 import com.orders.messages.orders_demo.services.OrderService;
@@ -236,7 +237,7 @@ public class OrderControllerTest {
     }
 
     @ParameterizedTest
-    @MethodSource("conflictExceptions")
+    @MethodSource("conflictExceptionsFromPending")
     public void cancelOrder_WhenOrdesIsNotOnPending_ShouldReturn409(Exception exception, String message)
             throws Exception {
         UUID orderId = UUID.randomUUID();
@@ -286,7 +287,7 @@ public class OrderControllerTest {
     }
 
     @ParameterizedTest
-    @MethodSource("conflictExceptions")
+    @MethodSource("conflictExceptionsFromPending")
     public void payOrder_ShouldReturn409(Exception exception, String message) throws Exception {
         UUID orderId = UUID.randomUUID();
         when(orderService.payOrder(orderId)).thenThrow(exception);
@@ -302,17 +303,51 @@ public class OrderControllerTest {
 
     @Test
     public void refundOrder_ShouldReturn200() throws Exception {
+        UUID customerId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order order = new Order(
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE,
+                        Instant.now()),
+                "MXN",
+                new BigDecimal(123));
+        when(orderService.refundOrder(orderId)).thenReturn(order);
 
+        mvc.perform(patch("/api/v1/orders/{id}/refund", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$.currency").value("MXN"))
+                .andExpect(jsonPath("$.amountTotal").value(123.00))
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
     }
 
     @Test
     public void refundOrder_ShouldReturn404() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(orderService.refundOrder(orderId)).thenThrow(new OrderNotFoundException());
 
+        mvc.perform(patch("/api/v1/orders/{id}/refund", orderId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Order could not be found."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/refund"));
     }
 
-    @Test
-    public void refundOrder_ShouldReturn409() throws Exception {
+    @ParameterizedTest
+    @MethodSource("conflictExceptionsOnRefundOrder")
+    public void refundOrder_ShouldReturn409(Exception exception, String message) throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(orderService.refundOrder(orderId)).thenThrow(exception);
 
+        mvc.perform(patch("/api/v1/orders/{id}/refund", orderId))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").value(message))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/refund"));
     }
 
     @Test
@@ -330,16 +365,29 @@ public class OrderControllerTest {
 
     }
 
-    private static Stream<Arguments> conflictExceptions() {
+    private static Stream<Arguments> conflictExceptionsFromPending() {
         return Stream.of(
                 Arguments.of(
                         new OrderAlreadyCancelledException(),
                         "Order is already cancelled."),
                 Arguments.of(
-                        new InvalidOrderStateException("Expired orders cannot be modified."),
+                        new OrderAlreadyExpiredException(),
                         "Expired orders cannot be modified."),
                 Arguments.of(
                         new OrderAlreadyPaidException(),
                         "Paid orders cannot be modified."));
+    }
+
+    private static Stream<Arguments> conflictExceptionsOnRefundOrder() {
+        return Stream.of(
+                Arguments.of(
+                        new OrderAlreadyCancelledException(),
+                        "Order is already cancelled."),
+                Arguments.of(
+                        new InvalidOrderStateException("Only paid orders can be refunded."),
+                        "Only paid orders can be refunded."),
+                Arguments.of(
+                        new OrderAlreadyExpiredException(),
+                        "Expired orders cannot be modified."));
     }
 }
