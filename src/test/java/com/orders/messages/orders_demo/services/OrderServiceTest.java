@@ -1,22 +1,21 @@
 package com.orders.messages.orders_demo.services;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.ArgumentMatchers.any;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.dtos.request.CreateOrderRequest;
@@ -95,7 +94,7 @@ public class OrderServiceTest {
 
         Exception result = assertThrows(CustomerNotFoundException.class, () -> orderService.createOrder(orderRequest));
 
-        assertEquals("Order could not be found.", result.getMessage());
+        assertEquals("Customer could not be found.", result.getMessage());
         verify(orderRepository, never()).save(any(Order.class));
     }
 

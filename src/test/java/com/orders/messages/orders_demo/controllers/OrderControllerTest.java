@@ -3,14 +3,19 @@ package com.orders.messages.orders_demo.controllers;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import static org.mockito.Mockito.when;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,6 +27,9 @@ import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
 import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
+import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
 import com.orders.messages.orders_demo.services.OrderService;
 
@@ -42,7 +50,8 @@ public class OrderControllerTest {
         UUID customerId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         Order order = new Order(
-                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE, Instant.now()),
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE,
+                        Instant.now()),
                 "MXN",
                 new BigDecimal(123));
         when(orderService.getOrder(orderId)).thenReturn(order);
@@ -79,7 +88,8 @@ public class OrderControllerTest {
                 .setAmountTotal(new BigDecimal(123))
                 .build();
         Order order = new Order(
-                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE, Instant.now()),
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE,
+                        Instant.now()),
                 "MXN",
                 new BigDecimal(123));
         when(orderService.createOrder(request)).thenReturn(order);
@@ -125,7 +135,8 @@ public class OrderControllerTest {
                 .setAmountTotal(new BigDecimal(-123))
                 .build();
         Order order = new Order(
-                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE, Instant.now()),
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE,
+                        Instant.now()),
                 "MXN",
                 new BigDecimal(-123));
         when(orderService.createOrder(request)).thenReturn(order);
@@ -173,7 +184,8 @@ public class OrderControllerTest {
                 .setAmountTotal(new BigDecimal(123))
                 .build();
         Order order = new Order(
-                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE, Instant.now()),
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE,
+                        Instant.now()),
                 "",
                 new BigDecimal(123));
         when(orderService.createOrder(request)).thenReturn(order);
@@ -190,18 +202,53 @@ public class OrderControllerTest {
     }
 
     @Test
-    public void cancelOrder_ShouldReturn200() throws Exception {
+    public void cancelOrder_WhenOrderIsOnPending_ShouldReturn200() throws Exception {
+        UUID customerId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        Order order = new Order(
+                new Customer(customerId, "user_email", "user_name", CustomerStatus.ACTIVE,
+                        Instant.now()),
+                "MXN",
+                new BigDecimal(123));
+        when(orderService.cancelOrder(orderId)).thenReturn(order);
 
+        mvc.perform(patch("/api/v1/orders/{id}/cancel", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$.currency").value("MXN"))
+                .andExpect(jsonPath("$.amountTotal").value(123.00))
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
     }
 
     @Test
-    public void cancelOrder_ShouldReturn404() throws Exception {
+    public void cancelOrder_WhenCostumerIdNotFound_ShouldReturn404() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(orderService.cancelOrder(orderId)).thenThrow(new OrderNotFoundException());
 
+        mvc.perform(patch("/api/v1/orders/{id}/cancel", orderId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Order could not be found."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/cancel"));
     }
 
-    @Test
-    public void cancelOrder_ShouldReturn409() throws Exception {
+    @ParameterizedTest
+    @MethodSource("conflictExceptions")
+    public void cancelOrder_WhenOrdesIsNotOnPending_ShouldReturn409(Exception exception, String message)
+            throws Exception {
+        UUID orderId = UUID.randomUUID();
+        when(orderService.cancelOrder(orderId)).thenThrow(exception);
 
+        mvc.perform(patch("/api/v1/orders/{id}/cancel", orderId))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").value(message))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/cancel"));
     }
 
     @Test
@@ -249,4 +296,16 @@ public class OrderControllerTest {
 
     }
 
+    private static Stream<Arguments> conflictExceptions() {
+        return Stream.of(
+                Arguments.of(
+                        new OrderAlreadyCancelledException(),
+                        "Order is already cancelled."),
+                Arguments.of(
+                        new InvalidOrderStateException("Expired orders cannot be modified."),
+                        "Expired orders cannot be modified."),
+                Arguments.of(
+                        new OrderAlreadyPaidException(),
+                        "Paid orders cannot be modified."));
+    }
 }
