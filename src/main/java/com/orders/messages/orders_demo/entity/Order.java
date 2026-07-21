@@ -66,6 +66,18 @@ public class Order {
         status = OrderStatus.PENDING_PAYMENT;
     }
 
+    public Order(Customer customer, String currency, BigDecimal amountTotal, OrderStatus status, Long version,
+            Instant createdAt, Instant updatedAt, Instant expiresAt) {
+        this.customer = customer;
+        this.currency = currency;
+        this.amountTotal = amountTotal;
+        this.status = status;
+        this.version = version;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+        this.expiresAt = expiresAt;
+    }
+
     public UUID getId() {
         return id;
     }
