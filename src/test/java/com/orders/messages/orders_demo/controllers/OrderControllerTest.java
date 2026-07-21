@@ -373,15 +373,7 @@ public class OrderControllerTest {
     }
 
     private static Order createOrderWithStatus(UUID customerId, OrderStatus status) {
-        return new Order(
-                createCustomer(customerId),
-                DEFAULT_CURRENCY,
-                DEFAULT_TOTAL_AMOUNT,
-                status,
-                1L,
-                Instant.now(),
-                Instant.now(),
-                Instant.now());
+        return new Order(createCustomer(customerId), DEFAULT_CURRENCY, DEFAULT_TOTAL_AMOUNT, status);
     }
 
     private static Stream<Arguments> conflictExceptionsFromPending() {
