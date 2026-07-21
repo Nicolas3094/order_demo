@@ -59,7 +59,9 @@ public class OrderServiceTest {
 
     @Test
     public void getOrder_WhenOrderDoesNotExist_ThrowsOrderNotFoundException() {
-        assertThrows(OrderNotFoundException.class, () -> orderService.getOrder(orderId));
+        Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.getOrder(orderId));
+
+        assertEquals("Order could not be found.", result.getMessage());
     }
 
     @Test
@@ -109,7 +111,9 @@ public class OrderServiceTest {
 
     @Test
     public void cancelOrder_WhenOrderDoesNotExist_ShouldThrowOrderNotFoundException() {
-        assertThrows(OrderNotFoundException.class, () -> orderService.cancelOrder(orderId));
+        Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.cancelOrder(orderId));
+
+        assertEquals("Order could not be found.", result.getMessage());
     }
 
     @Test
@@ -124,7 +128,9 @@ public class OrderServiceTest {
 
     @Test
     public void payOrder_WhenOrderDoesNotExist_ShouldThrowOrderNotFoundException() {
-        assertThrows(OrderNotFoundException.class, () -> orderService.payOrder(orderId));
+        Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.payOrder(orderId));
+
+        assertEquals("Order could not be found.", result.getMessage());
     }
 
     @Test
@@ -139,7 +145,9 @@ public class OrderServiceTest {
 
     @Test
     public void expireOrder_WhenOrderDoesNotExist_ShouldThrowOrderNotFoundException() {
-        assertThrows(OrderNotFoundException.class, () -> orderService.expireOrder(orderId));
+        Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.expireOrder(orderId));
+
+        assertEquals("Order could not be found.", result.getMessage());
     }
 
     @Test
@@ -155,7 +163,9 @@ public class OrderServiceTest {
 
     @Test
     public void refundOrder_WhenOrderDoesNotExist_ShouldThrowOrderNotFoundException() {
-        assertThrows(OrderNotFoundException.class, () -> orderService.refundOrder(orderId));
+        Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.refundOrder(orderId));
+
+        assertEquals("Order could not be found.", result.getMessage());
     }
 
 }
