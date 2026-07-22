@@ -19,7 +19,8 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final CustomerRepository customerRepository;
 
-    public OrderService(OrderRepository repository, CustomerRepository customerRepository) {
+    public OrderService(OrderRepository repository,
+            CustomerRepository customerRepository) {
         this.orderRepository = repository;
         this.customerRepository = customerRepository;
     }
@@ -74,5 +75,7 @@ public class OrderService {
 
         return orderRepository.save(order);
     }
+
+    /* Serivces for OrderItem */
 
 }

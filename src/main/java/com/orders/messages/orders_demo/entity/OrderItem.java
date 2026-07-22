@@ -13,12 +13,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "order_item", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_order_item_sku", columnNames = "sku")
-})
+@Table(name = "order_item")
 public class OrderItem {
 
     @Id
@@ -32,12 +29,15 @@ public class OrderItem {
     @Column(nullable = false)
     private String sku;
 
+    @Column(nullable = false, length = 255)
     private String description;
 
+    @Column(nullable = false)
     private BigDecimal unitPrice;
 
     private BigDecimal lineTotal;
 
+    @Column(nullable = false)
     private Long quantity;
 
     protected OrderItem() {
