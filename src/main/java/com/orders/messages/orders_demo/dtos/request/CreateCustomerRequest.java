@@ -9,6 +9,6 @@ import jakarta.validation.constraints.NotNull;
  * @param name  the name of the customer.
  */
 public record CreateCustomerRequest(
-        @NotNull(message = "Email is required.") String email,
-        @NotNull(message = "Customer name is required") String name) {
+        @NotNull(message = "Customer email is required.") String email,
+        @NotNull(message = "Customer name is required.") String name) {
 }
