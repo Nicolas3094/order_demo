@@ -48,7 +48,7 @@ public class OrderItem {
         this.description = description;
         this.unitPrice = unitPrice;
         this.quantity = quantity;
-        this.lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity));
+        updateLineTotal();
     }
 
     public UUID getId() {
@@ -77,6 +77,20 @@ public class OrderItem {
 
     public Long getQuantity() {
         return quantity;
+    }
+
+    public void changeUnitPrice(BigDecimal unitPrice) {
+        this.unitPrice = unitPrice;
+        updateLineTotal();
+    }
+
+    public void changeQuantity(Long quantity) {
+        this.quantity = quantity;
+        updateLineTotal();
+    }
+
+    private void updateLineTotal() {
+        this.lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity));
     }
 
 }
