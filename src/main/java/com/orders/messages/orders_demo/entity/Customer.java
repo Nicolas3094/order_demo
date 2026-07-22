@@ -6,6 +6,8 @@ import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
 
 import com.orders.messages.orders_demo.enums.CustomerStatus;
+import com.orders.messages.orders_demo.exceptions.customer.CustomerBlockedException;
+import com.orders.messages.orders_demo.exceptions.customer.CustomerStateException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -77,11 +79,18 @@ public class Customer {
     }
 
     public void deactivate() {
-        this.status = CustomerStatus.BLOCKED;
+        if (CustomerStatus.ACTIVE.equals(status)) {
+            this.status = CustomerStatus.BLOCKED;
+        } else {
+            throw new CustomerBlockedException();
+        }
     }
 
     public void activate() {
-        this.status = CustomerStatus.ACTIVE;
+        if (CustomerStatus.BLOCKED.equals(status)) {
+            this.status = CustomerStatus.ACTIVE;
+        } else {
+            throw new CustomerStateException("Customer is already active.");
+        }
     }
-
 }
