@@ -35,9 +35,9 @@ public class CustomerServiceTest {
 
     private UUID customerId;
 
-    private static final String DEFUALT_EMAIL = "customer_email";
+    private static final String DEFAULT_EMAIL = "customer_email";
     private static final String DEFAULT_NAME = "customer_name";
-    private static final CreateCustomerRequest DEFAULT_REQUEST = new CreateCustomerRequest(DEFUALT_EMAIL, DEFAULT_NAME);
+    private static final CreateCustomerRequest DEFAULT_REQUEST = new CreateCustomerRequest(DEFAULT_EMAIL, DEFAULT_NAME);
 
     @BeforeEach
     public void setup() {
@@ -51,14 +51,14 @@ public class CustomerServiceTest {
         Customer result = customerService.getCustomer(customerId);
 
         assertEquals(customerId, result.getId());
-        assertEquals(DEFUALT_EMAIL, result.getEmail());
+        assertEquals(DEFAULT_EMAIL, result.getEmail());
         assertEquals(DEFAULT_NAME, result.getName());
         assertEquals(CustomerStatus.ACTIVE, result.getStatus());
     }
 
     @Test
     public void getCustomer_WhenCustomerNotFound_ShouldThrowCustomerNotFoundException() {
-        when(customerRepository.findById(customerId)).thenThrow(new CustomerNotFoundException());
+        when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
 
         Exception result = assertThrows(CustomerNotFoundException.class, () -> customerService.getCustomer(customerId));
 
@@ -71,7 +71,8 @@ public class CustomerServiceTest {
 
         Customer result = customerService.createCustomer(DEFAULT_REQUEST);
 
-        assertEquals(DEFUALT_EMAIL, result.getEmail());
+        verify(customerRepository).save(result);
+        assertEquals(DEFAULT_EMAIL, result.getEmail());
         assertEquals(DEFAULT_NAME, result.getName());
         assertEquals(CustomerStatus.ACTIVE, result.getStatus());
     }
@@ -84,15 +85,16 @@ public class CustomerServiceTest {
 
         Customer result = customerService.deactivateCustomer(customerId);
 
+        verify(customerRepository).save(customer);
         assertEquals(customerId, result.getId());
-        assertEquals(DEFUALT_EMAIL, result.getEmail());
+        assertEquals(DEFAULT_EMAIL, result.getEmail());
         assertEquals(DEFAULT_NAME, result.getName());
         assertEquals(CustomerStatus.BLOCKED, result.getStatus());
     }
 
     @Test
     public void deactivateCustomer_WhenNotCustomerFound_ShouldThrowCustomerNotFoundException() {
-        when(customerRepository.findById(customerId)).thenThrow(new CustomerNotFoundException());
+        when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
 
         Exception result = assertThrows(CustomerNotFoundException.class,
                 () -> customerService.deactivateCustomer(customerId));
@@ -120,15 +122,16 @@ public class CustomerServiceTest {
 
         Customer result = customerService.activateCustomer(customerId);
 
+        verify(customerRepository).save(customer);
         assertEquals(customerId, result.getId());
-        assertEquals(DEFUALT_EMAIL, result.getEmail());
+        assertEquals(DEFAULT_EMAIL, result.getEmail());
         assertEquals(DEFAULT_NAME, result.getName());
         assertEquals(CustomerStatus.ACTIVE, result.getStatus());
     }
 
     @Test
     public void activateCustomer_WhenNotCustomerFound_ShouldThrowCustomerNotFoundException() {
-        when(customerRepository.findById(customerId)).thenThrow(new CustomerNotFoundException());
+        when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
 
         Exception result = assertThrows(CustomerNotFoundException.class,
                 () -> customerService.activateCustomer(customerId));
@@ -149,10 +152,10 @@ public class CustomerServiceTest {
     }
 
     private static Customer createActiveCustomer(UUID customerId) {
-        return new Customer(customerId, DEFUALT_EMAIL, DEFAULT_NAME, CustomerStatus.ACTIVE);
+        return new Customer(customerId, DEFAULT_EMAIL, DEFAULT_NAME, CustomerStatus.ACTIVE);
     }
 
     private static Customer createBlockedCustomer(UUID customerId) {
-        return new Customer(customerId, DEFUALT_EMAIL, DEFAULT_NAME, CustomerStatus.BLOCKED);
+        return new Customer(customerId, DEFAULT_EMAIL, DEFAULT_NAME, CustomerStatus.BLOCKED);
     }
 }

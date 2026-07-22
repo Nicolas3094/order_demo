@@ -7,13 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 
 import com.orders.messages.orders_demo.enums.CustomerStatus;
+import com.orders.messages.orders_demo.exceptions.customer.CustomerBlockedException;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerStateException;
 
 public class CustomerTest {
 
     private UUID customerId;
 
-    private static final String DEFUALT_EMAIL = "customer_email";
+    private static final String DEFAULT_EMAIL = "customer_email";
     private static final String DEFAULT_NAME = "customer_name";
 
     @Test
@@ -41,13 +42,13 @@ public class CustomerTest {
         customerId = UUID.randomUUID();
         Customer customer = createCustomerWithStatus(customerId, CustomerStatus.BLOCKED);
 
-        Exception result = assertThrows(CustomerStateException.class, () -> customer.deactivate());
+        Exception result = assertThrows(CustomerBlockedException.class, () -> customer.deactivate());
 
         assertEquals("Blocked customer cannot be modified.", result.getMessage());
     }
 
     @Test
-    public void dactivate_WhenStatusIsActive_ShouldChangeStatusToBlocked() {
+    public void deactivate_WhenStatusIsActive_ShouldChangeStatusToBlocked() {
         customerId = UUID.randomUUID();
         Customer customer = createCustomerWithStatus(customerId, CustomerStatus.ACTIVE);
 
@@ -57,7 +58,7 @@ public class CustomerTest {
     }
 
     private static Customer createCustomerWithStatus(UUID customerId, CustomerStatus status) {
-        return new Customer(customerId, DEFUALT_EMAIL, DEFAULT_NAME, status);
+        return new Customer(customerId, DEFAULT_EMAIL, DEFAULT_NAME, status);
     }
 
 }
