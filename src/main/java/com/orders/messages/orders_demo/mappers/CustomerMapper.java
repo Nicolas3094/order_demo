@@ -4,7 +4,7 @@ import com.orders.messages.orders_demo.dtos.request.CreateCustomerRequest;
 import com.orders.messages.orders_demo.dtos.response.CustomerResponse;
 import com.orders.messages.orders_demo.entity.Customer;
 
-public class CustomerMapper {
+public final class CustomerMapper {
     public static CustomerResponse toResponse(Customer customer) {
         return CustomerResponse.builder()
                 .setId(customer.getId())

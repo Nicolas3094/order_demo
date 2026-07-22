@@ -5,7 +5,7 @@ import com.orders.messages.orders_demo.dtos.response.OrderResponse;
 import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
 
-public class OrderMapper {
+public final class OrderMapper {
 
     public static OrderResponse toResponse(Order order) {
         return OrderResponse.builder()
