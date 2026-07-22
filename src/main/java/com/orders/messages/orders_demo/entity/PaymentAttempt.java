@@ -65,9 +65,11 @@ public class PaymentAttempt {
     protected PaymentAttempt() {
     }
 
-    public PaymentAttempt(BigDecimal amount) {
-        this.amount = amount;
-        this.provider = PaymentProvider.NONE;
+    public PaymentAttempt(Order order, PaymentProvider provider, String idempotencyKey) {
+        this.order = order;
+        this.amount = order.getAmountTotal();
+        this.provider = provider;
+        this.idempotencyKey = idempotencyKey;
         this.status = PaymentStatus.CREATED;
     }
 
