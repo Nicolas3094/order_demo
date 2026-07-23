@@ -16,6 +16,7 @@ import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundExcep
 import com.orders.messages.orders_demo.exceptions.customer.CustomerStateException;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
+import com.orders.messages.orders_demo.exceptions.payment.InvalidPaymentStateException;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -68,6 +69,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidOrderStateException.class)
     public ResponseEntity<ErrorResponse> handleInvalidOrderState(
             InvalidOrderStateException e, HttpServletRequest request) {
+        return handleInvalid(e, request);
+    }
+
+    /**
+     * Handles generic requests for invalid payment states.
+     *
+     * @param e       the thrown {@link InvalidPaymentStateException}.
+     * @param request the current HTTP request.
+     * @return a {@code 409 Conflict} response containing the standardized error
+     *         payload.
+     */
+    @ExceptionHandler(InvalidPaymentStateException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidInvalidPaymentState(
+            InvalidPaymentStateException e, HttpServletRequest request) {
         return handleInvalid(e, request);
     }
 

@@ -9,6 +9,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import com.orders.messages.orders_demo.enums.PaymentProvider;
 import com.orders.messages.orders_demo.enums.PaymentStatus;
+import com.orders.messages.orders_demo.exceptions.payment.InvalidPaymentStateException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -39,14 +40,17 @@ public class PaymentAttempt {
     private Order order;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private PaymentProvider provider;
 
+    @Column(nullable = false)
     private BigDecimal amount;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;
 
+    @Column(nullable = false)
     private String idempotencyKey;
 
     /** Gateway returning value */
@@ -71,6 +75,14 @@ public class PaymentAttempt {
         this.provider = provider;
         this.idempotencyKey = idempotencyKey;
         this.status = PaymentStatus.CREATED;
+    }
+
+    public PaymentAttempt(Order order, PaymentProvider provider, String idempotencyKey, PaymentStatus status) {
+        this.order = order;
+        this.amount = order.getAmountTotal();
+        this.provider = provider;
+        this.idempotencyKey = idempotencyKey;
+        this.status = status;
     }
 
     public UUID getId() {
@@ -115,6 +127,51 @@ public class PaymentAttempt {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    /** The Payment is under process. */
+    public void startProcessing() {
+        switch (status) {
+            case CREATED -> status = PaymentStatus.PROCESSING;
+            case PROCESSING -> throw new InvalidPaymentStateException("Payment is already being processed.");
+            default -> throw new InvalidPaymentStateException("Only created payments can start processing.");
+        }
+    }
+
+    /**
+     * The money has already been collected.
+     * 
+     * @param providerRef The references sent by the provider.
+     */
+    public void markAsSucceeded(String providerRef) {
+        if (PaymentStatus.PROCESSING.equals(status)) {
+            this.providerRef = providerRef;
+            status = PaymentStatus.SUCCEEDED;
+        } else {
+            throw new InvalidPaymentStateException("Only processing payments can be marked as succeeded.");
+        }
+    }
+
+    /** The payment failed. */
+    public void markAsFailed(Integer code, String message) {
+        if (PaymentStatus.PROCESSING.equals(status)) {
+            status = PaymentStatus.FAILED;
+            this.failureCode = code;
+            this.failureMessage = message;
+        } else {
+            throw new InvalidPaymentStateException("Only processing payments can fail.");
+        }
+    }
+
+    /** The attempt was canceled before finishing. */
+    public void cancel() {
+        switch (status) {
+            case CREATED, PROCESSING -> status = PaymentStatus.CANCELLED;
+            case SUCCEEDED -> throw new InvalidPaymentStateException("Successful payments cannot be cancelled.");
+            case FAILED -> throw new InvalidPaymentStateException("Failed payments cannot be cancelled.");
+            case CANCELLED -> throw new InvalidPaymentStateException("Payment is already cancelled.");
+            default -> throw new InvalidPaymentStateException("Unknown payment state.");
+        }
     }
 
 }
