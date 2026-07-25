@@ -121,6 +121,10 @@ public class Order {
         changeStatusFromPending(OrderStatus.EXPIRED);
     }
 
+    public boolean canAcceptPayments() {
+        return OrderStatus.PENDING_PAYMENT.equals(status);
+    }
+
     public void refund() {
         switch (status) {
             case CANCELLED -> throw new OrderAlreadyCancelledException();

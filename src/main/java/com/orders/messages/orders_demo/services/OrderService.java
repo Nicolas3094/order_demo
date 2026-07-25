@@ -49,6 +49,7 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
+    // TODO: Remove this method since PaymentAttemptService already does it.
     public Order payOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
@@ -76,6 +77,6 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    /* Serivces for OrderItem */
+    // Serivces for OrderItem
 
 }

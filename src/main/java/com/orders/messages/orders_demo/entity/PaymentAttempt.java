@@ -50,12 +50,14 @@ public class PaymentAttempt {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 64)
     private String idempotencyKey;
 
     /** Gateway returning value */
+    @Column(length = 100)
     private String providerRef;
 
+    @Column(length = 500)
     private String failureMessage;
 
     private Integer failureCode;
@@ -144,22 +146,24 @@ public class PaymentAttempt {
      * @param providerRef The references sent by the provider.
      */
     public void markAsSucceeded(String providerRef) {
-        if (PaymentStatus.PROCESSING.equals(status)) {
-            this.providerRef = providerRef;
-            status = PaymentStatus.SUCCEEDED;
-        } else {
-            throw new InvalidPaymentStateException("Only processing payments can be marked as succeeded.");
+        switch (status) {
+            case PROCESSING -> {
+                this.providerRef = providerRef;
+                status = PaymentStatus.SUCCEEDED;
+            }
+            default -> throw new InvalidPaymentStateException("Only processing payments can be marked as succeeded.");
         }
     }
 
     /** The payment failed. */
-    public void markAsFailed(Integer code, String message) {
-        if (PaymentStatus.PROCESSING.equals(status)) {
-            status = PaymentStatus.FAILED;
-            this.failureCode = code;
-            this.failureMessage = message;
-        } else {
-            throw new InvalidPaymentStateException("Only processing payments can fail.");
+    public void markAsFailed(Integer failureCode, String failureMessage) {
+        switch (status) {
+            case PROCESSING -> {
+                status = PaymentStatus.FAILED;
+                this.failureCode = failureCode;
+                this.failureMessage = failureMessage;
+            }
+            default -> throw new InvalidPaymentStateException("Only processing payments can fail.");
         }
     }
 
