@@ -107,7 +107,7 @@ public class PaymentAttemptServiceTest {
     public void createPaymentAttempt_WhenOrderExistsAndIdempotencyIsUnique_ShouldSavePayment() {
         CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(
                 PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-        Order order = createOrder();
+        Order order = createOrderWithId(orderId);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
         mockPaymentRepositorySave();
@@ -139,8 +139,8 @@ public class PaymentAttemptServiceTest {
     public void createPaymentAttempt_WhenIdempotencyKeyExists_ShouldReturnExistingPayment() {
         CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(
                 PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-        Order order = createOrder();
-        PaymentAttempt expectedPayment = createPaymentAttemptWithStatus(PaymentStatus.PROCESSING);
+        Order order = createOrderWithId(orderId);
+        PaymentAttempt expectedPayment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY))
                 .thenReturn(Optional.of(expectedPayment));
@@ -459,20 +459,12 @@ public class PaymentAttemptServiceTest {
         return new PaymentAttempt(order, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY, status);
     }
 
-    private static PaymentAttempt createPaymentAttemptWithStatus(PaymentStatus status) {
-        return new PaymentAttempt(createOrder(), PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY, status);
-    }
-
     private static Order createOrderWithStatusAndId(UUID orderId, OrderStatus status) {
         return new Order(orderId, new Customer("email", "name"), "mxn", new BigDecimal("12341.21"), status);
     }
 
     private static Order createOrderWithId(UUID id) {
         return new Order(id, new Customer("email", "name"), "mxn", new BigDecimal("12341.21"));
-    }
-
-    private static Order createOrder() {
-        return new Order(new Customer("email", "name"), "mxn", new BigDecimal("12341.21"));
     }
 
     private static Stream<Arguments> invalidPaymentStateExceptionWhenPaymentIsCancelled() {
