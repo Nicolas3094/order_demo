@@ -66,7 +66,23 @@ public class Order {
         status = OrderStatus.PENDING_PAYMENT;
     }
 
+    public Order(UUID id, Customer customer, String currency, BigDecimal amountTotal) {
+        this.id = id;
+        this.customer = customer;
+        this.currency = currency;
+        this.amountTotal = amountTotal;
+        status = OrderStatus.PENDING_PAYMENT;
+    }
+
     public Order(Customer customer, String currency, BigDecimal amountTotal, OrderStatus status) {
+        this.customer = customer;
+        this.currency = currency;
+        this.amountTotal = amountTotal;
+        this.status = status;
+    }
+
+    public Order(UUID id, Customer customer, String currency, BigDecimal amountTotal, OrderStatus status) {
+        this.id = id;
         this.customer = customer;
         this.currency = currency;
         this.amountTotal = amountTotal;

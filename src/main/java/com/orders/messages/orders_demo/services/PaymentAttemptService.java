@@ -28,12 +28,14 @@ public class PaymentAttemptService {
         this.paymentAttemptRepository = paymentAttemptRepository;
     }
 
-    public PaymentAttempt getPaymentAttempt(UUID id) {
-        return findPaymentAttempt(id);
+    public PaymentAttempt getPaymentAttempt(UUID orderId, UUID paymentId) {
+        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
+
+        return paymentAttempt;
     }
 
     @Transactional
-    public PaymentAttempt createPaymentAttempt(CreatePaymentAttemptRequest paymentRequest, UUID orderId) {
+    public PaymentAttempt createPaymentAttempt(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
         Order order = findOrder(orderId);
 
         if (!order.canAcceptPayments()) {
@@ -51,8 +53,8 @@ public class PaymentAttemptService {
     }
 
     @Transactional
-    public PaymentAttempt startProcessing(UUID id) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(id);
+    public PaymentAttempt startProcessing(UUID orderId, UUID paymentId) {
+        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
         Order order = paymentAttempt.getOrder();
 
         if (!order.canAcceptPayments()) {
@@ -65,8 +67,8 @@ public class PaymentAttemptService {
     }
 
     @Transactional
-    public PaymentAttempt markAsSucceeded(UUID id, String providerRef) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(id);
+    public PaymentAttempt markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
+        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
         Order order = paymentAttempt.getOrder();
 
         if (!order.canAcceptPayments()) {
@@ -83,8 +85,8 @@ public class PaymentAttemptService {
     }
 
     @Transactional
-    public PaymentAttempt markAsFailed(UUID id, Integer code, String errorMessage) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(id);
+    public PaymentAttempt markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
+        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
         paymentAttempt.markAsFailed(code, errorMessage);
 
@@ -92,8 +94,8 @@ public class PaymentAttemptService {
     }
 
     @Transactional
-    public PaymentAttempt markAsCancelled(UUID id) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(id);
+    public PaymentAttempt markAsCancelled(UUID orderId, UUID paymentId) {
+        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
         paymentAttempt.cancel();
 
@@ -104,23 +106,30 @@ public class PaymentAttemptService {
      * Finds the Payment if exits, otherwise throws an
      * {@link PaymentNotFoundException}.
      * 
-     * @param id The PaymentAttempt ID.
+     * @param orderId   The Order ID.
+     * @param paymentId The PaymentAttempt ID.
      * @return A complete Payment object.
      */
-    private PaymentAttempt findPaymentAttempt(UUID id) {
-        return paymentAttemptRepository.findById(id)
+    private PaymentAttempt findPaymentAttempt(UUID orderId, UUID paymentId) {
+        PaymentAttempt paymentAttempt = paymentAttemptRepository.findById(paymentId)
                 .orElseThrow(PaymentNotFoundException::new);
+
+        if (!orderId.equals(paymentAttempt.getOrder().getId())) {
+            throw new PaymentNotFoundException();
+        }
+
+        return paymentAttempt;
     }
 
     /**
      * Finds the Order if exits, otherwise throws an
      * {@link OrderNotFoundException}.
      * 
-     * @param id The Order ID.
+     * @param orderId The Order ID.
      * @return A complete Order object.
      */
-    private Order findOrder(UUID id) {
-        return orderRepository.findById(id)
+    private Order findOrder(UUID orderId) {
+        return orderRepository.findById(orderId)
                 .orElseThrow(OrderNotFoundException::new);
     }
 
