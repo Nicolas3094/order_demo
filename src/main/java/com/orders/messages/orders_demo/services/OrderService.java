@@ -49,16 +49,6 @@ public class OrderService {
         return orderRepository.save(order);
     }
 
-    // TODO: Remove this method since PaymentAttemptService already does it.
-    public Order payOrder(UUID id) {
-        Order order = orderRepository.findById(id)
-                .orElseThrow(OrderNotFoundException::new);
-
-        order.markAsPaid();
-
-        return orderRepository.save(order);
-    }
-
     public Order expireOrder(UUID id) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);

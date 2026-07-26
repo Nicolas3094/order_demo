@@ -117,23 +117,6 @@ public class OrderServiceTest {
     }
 
     @Test
-    public void payOrder_WhenOrderExists_ShouldMarkOrderAsPaid() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
-        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
-
-        Order result = orderService.payOrder(orderId);
-
-        assertEquals(OrderStatus.PAID, result.getStatus());
-    }
-
-    @Test
-    public void payOrder_WhenOrderDoesNotExist_ShouldThrowOrderNotFoundException() {
-        Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.payOrder(orderId));
-
-        assertEquals("Order could not be found.", result.getMessage());
-    }
-
-    @Test
     public void expireOrder_WhenOrderExists_ShouldExpireOrder() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));

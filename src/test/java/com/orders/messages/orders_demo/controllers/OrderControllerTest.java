@@ -228,48 +228,6 @@ public class OrderControllerTest {
     }
 
     @Test
-    public void payOrder_WhenOrderWithCustomer_ShouldReturn200() throws Exception {
-        Order order = createOrderWithStatus(customerId, OrderStatus.PAID);
-        when(orderService.payOrder(orderId)).thenReturn(order);
-
-        mvc.perform(patch("/api/v1/orders/{id}/pay", orderId))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
-                .andExpect(jsonPath("$.currency").value(DEFAULT_CURRENCY))
-                .andExpect(jsonPath("$.amountTotal").value(123.00))
-                .andExpect(jsonPath("$.status").value("PAID"));
-        verify(orderService).payOrder(orderId);
-    }
-
-    @Test
-    public void payOrder_WhenOrderIsNotFound_ShouldReturn404() throws Exception {
-        when(orderService.payOrder(orderId)).thenThrow(new OrderNotFoundException());
-
-        mvc.perform(patch("/api/v1/orders/{id}/pay", orderId))
-                .andExpect(status().isNotFound())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.message").value("Order could not be found."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/pay"));
-    }
-
-    @ParameterizedTest
-    @MethodSource("conflictExceptionsFromPending")
-    public void payOrder_WhenOrdesIsNotOnPending_ShouldReturn409(Exception exception, String message) throws Exception {
-        when(orderService.payOrder(orderId)).thenThrow(exception);
-
-        mvc.perform(patch("/api/v1/orders/{id}/pay", orderId))
-                .andExpect(status().isConflict())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"))
-                .andExpect(jsonPath("$.message").value(message))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/pay"));
-    }
-
-    @Test
     public void refundOrder_WhenOrderIsValid_ShouldReturn200() throws Exception {
         Order order = createOrderWithStatus(customerId, OrderStatus.REFUNDED);
         when(orderService.refundOrder(orderId)).thenReturn(order);
