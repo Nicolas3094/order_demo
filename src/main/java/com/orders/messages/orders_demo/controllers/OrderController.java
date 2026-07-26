@@ -13,8 +13,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.orders.messages.orders_demo.dtos.request.CreateOrderRequest;
+import com.orders.messages.orders_demo.dtos.request.CreatePaymentAttemptRequest;
+import com.orders.messages.orders_demo.dtos.request.PaymentFailedRequest;
+import com.orders.messages.orders_demo.dtos.request.PaymentSucceededRequest;
 import com.orders.messages.orders_demo.dtos.response.OrderResponse;
+import com.orders.messages.orders_demo.dtos.response.PaymentAttemptResponse;
 import com.orders.messages.orders_demo.mappers.OrderMapper;
+import com.orders.messages.orders_demo.mappers.PaymentAttemptMapper;
 import com.orders.messages.orders_demo.services.OrderService;
 import com.orders.messages.orders_demo.services.PaymentAttemptService;
 
@@ -53,14 +58,6 @@ public class OrderController {
                         orderService.cancelOrder(id)));
     }
 
-    // TODO: Remove this method since PaymentAttemptService already does it.
-    @PatchMapping("/{id}/pay")
-    public ResponseEntity<OrderResponse> payOrder(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                OrderMapper.toResponse(
-                        orderService.payOrder(id)));
-    }
-
     @PatchMapping("/{id}/expire")
     public ResponseEntity<OrderResponse> expireOrder(@PathVariable UUID id) {
         return ResponseEntity.ok(
@@ -80,5 +77,61 @@ public class OrderController {
      * Payment attempt.
      * 
      */
+
+    @GetMapping("/{orderId}/payments/{paymentId}")
+    public ResponseEntity<PaymentAttemptResponse> getPayment(@PathVariable UUID orderId, @PathVariable UUID paymentId) {
+        return ResponseEntity.ok(
+                PaymentAttemptMapper.toResponse(
+                        paymentAttemptService.getPaymentAttempt(orderId, paymentId)));
+    }
+
+    @PostMapping("/{orderId}/payments")
+    public ResponseEntity<PaymentAttemptResponse> createPayment(
+            @PathVariable UUID orderId,
+            @Valid @RequestBody CreatePaymentAttemptRequest paymentRequest) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(PaymentAttemptMapper.toResponse(
+                        paymentAttemptService.createPaymentAttempt(orderId, paymentRequest)));
+    }
+
+    @PatchMapping("/{orderId}/payments/{paymentId}/processing")
+    public ResponseEntity<PaymentAttemptResponse> startProcessing(
+            @PathVariable UUID orderId,
+            @PathVariable UUID paymentId) {
+        return ResponseEntity.ok(
+                PaymentAttemptMapper.toResponse(
+                        paymentAttemptService.startProcessing(orderId, paymentId)));
+    }
+
+    @PatchMapping("/{orderId}/payments/{paymentId}/succeeded")
+    public ResponseEntity<PaymentAttemptResponse> markPaymentAsSucceeded(
+            @PathVariable UUID orderId,
+            @PathVariable UUID paymentId,
+            @RequestBody PaymentSucceededRequest paymentSucceededRequest) {
+        return ResponseEntity.ok(
+                PaymentAttemptMapper.toResponse(
+                        paymentAttemptService.markAsSucceeded(
+                                orderId, paymentId, paymentSucceededRequest.providerRef())));
+    }
+
+    @PatchMapping("/{orderId}/payments/{paymentId}/failed")
+    public ResponseEntity<PaymentAttemptResponse> markPaymentAsFailed(
+            @PathVariable UUID orderId,
+            @PathVariable UUID paymentId,
+            @RequestBody PaymentFailedRequest paymentFailedRequest) {
+        return ResponseEntity.ok(
+                PaymentAttemptMapper.toResponse(
+                        paymentAttemptService.markAsFailed(
+                                orderId, paymentId, paymentFailedRequest.code(), paymentFailedRequest.errorMessage())));
+    }
+
+    @PatchMapping("/{orderId}/payments/{paymentId}/cancel")
+    public ResponseEntity<PaymentAttemptResponse> markPaymentAsCancelled(
+            @PathVariable UUID orderId,
+            @PathVariable UUID paymentId) {
+        return ResponseEntity.ok(
+                PaymentAttemptMapper.toResponse(
+                        paymentAttemptService.markAsCancelled(orderId, paymentId)));
+    }
 
 }
