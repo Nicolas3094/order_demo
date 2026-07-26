@@ -3,6 +3,8 @@ package com.orders.messages.orders_demo.entity;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import com.orders.messages.orders_demo.exceptions.order_item.InvalidOrderItemStateException;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -51,6 +53,15 @@ public class OrderItem {
         updateLineTotal();
     }
 
+    public OrderItem(Order order, String sku, String description, BigDecimal unitPrice, Long quantity) {
+        this.order = order;
+        this.sku = sku;
+        this.description = description;
+        this.unitPrice = unitPrice;
+        this.quantity = quantity;
+        updateLineTotal();
+    }
+
     public UUID getId() {
         return id;
     }
@@ -80,13 +91,26 @@ public class OrderItem {
     }
 
     public void changeUnitPrice(BigDecimal unitPrice) {
+        validateOrderCanModifyItems();
+
         this.unitPrice = unitPrice;
+
         updateLineTotal();
     }
 
     public void changeQuantity(Long quantity) {
+        validateOrderCanModifyItems();
+
         this.quantity = quantity;
+
         updateLineTotal();
+    }
+
+    private void validateOrderCanModifyItems() {
+        if (!order.canAcceptPayments()) {
+            throw new InvalidOrderItemStateException(
+                    "Only pending orders can modify items.");
+        }
     }
 
     private void updateLineTotal() {

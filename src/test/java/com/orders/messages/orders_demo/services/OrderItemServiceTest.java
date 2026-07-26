@@ -1,0 +1,238 @@
+package com.orders.messages.orders_demo.services;
+
+import java.math.BigDecimal;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.ArgumentMatchers.any;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import com.orders.messages.orders_demo.dtos.request.CreateOrderItemRequest;
+import com.orders.messages.orders_demo.entity.Customer;
+import com.orders.messages.orders_demo.entity.Order;
+import com.orders.messages.orders_demo.entity.OrderItem;
+import com.orders.messages.orders_demo.enums.OrderStatus;
+import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
+import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
+import com.orders.messages.orders_demo.repositories.OrderItemRepository;
+import com.orders.messages.orders_demo.repositories.OrderRepository;
+
+@ExtendWith(MockitoExtension.class)
+public class OrderItemServiceTest {
+
+    private static final String ORDER_ERROR_MESSAGE = "Order could not be found.";
+    private static final String ORDER_ITEM_ERROR_MESSAGE = "Order item not found.";
+    private static final String DEFAULT_SKU = "sku";
+    private static final String DEFAULT_DESCRIPTION = "description";
+    private static final BigDecimal DEFUALT_UNIT_PRICE = new BigDecimal("12.00");
+    private static final Long DEFUALT_QUANTITY = 10L;
+
+    @Mock
+    private OrderRepository orderRepository;
+    @Mock
+    private OrderItemRepository orderItemRepository;
+
+    @InjectMocks
+    private OrderItemService orderItemService;
+
+    private UUID orderItemId;
+    private UUID orderId;
+
+    @BeforeEach
+    public void setup() {
+        orderId = UUID.randomUUID();
+        orderItemId = UUID.randomUUID();
+    }
+
+    @Test
+    public void getOrderItem_WhenOrderItemFound_ShouldGetOrderItem() {
+        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+
+        OrderItem result = orderItemService.getOrderItem(orderId, orderItemId);
+
+        assertEquals(orderItem, result);
+        assertEquals(orderItem.getOrder(), result.getOrder());
+        verify(orderItemRepository).findById(orderItemId);
+    }
+
+    @Test
+    public void getOrderItem_WhenOrderItemNotFound_ShouldThrowOrderItemNotFoundException() {
+        OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
+                () -> orderItemService.getOrderItem(orderId, orderItemId));
+
+        assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
+    }
+
+    @Test
+    public void createOrderItem_WhenOrderFound_ShouldCreateOrderItem() {
+        CreateOrderItemRequest request = createOrderItemRequest();
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderItem result = orderItemService.createOrderItem(orderId, request);
+
+        assertEquals(order, result.getOrder());
+        assertEquals(DEFAULT_SKU, result.getSku());
+        assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
+        assertEquals(DEFUALT_UNIT_PRICE, result.getUnitPrice());
+        assertEquals(DEFUALT_QUANTITY, result.getQuantity());
+        verify(orderItemRepository).save(result);
+    }
+
+    @Test
+    public void createOrderItem_WhenOrderNotFound_ShouldThrowOrderNotFoundException() {
+        CreateOrderItemRequest request = createOrderItemRequest();
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
+                () -> orderItemService.createOrderItem(orderId, request));
+
+        assertEquals(ORDER_ERROR_MESSAGE, result.getMessage());
+        verify(orderItemRepository, never()).save(any(OrderItem.class));
+    }
+
+    @Test
+    public void deleteOrderItem_WhenOrderItemFound_ShouldDeleteOrderItem() {
+        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+
+        orderItemService.deleteOrderItem(orderId, orderItemId);
+
+        verify(orderItemRepository).delete(orderItem);
+        verify(orderItemRepository).findById(orderItemId);
+    }
+
+    @Test
+    public void deleteOrderItem_WhenOrderItemNotFound_ShouldThrowOrderItemNotFoundException() {
+
+        OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
+                () -> orderItemService.deleteOrderItem(orderId, orderItemId));
+
+        assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
+        verify(orderItemRepository, never()).delete(any(OrderItem.class));
+    }
+
+    @Test
+    public void deleteOrderItem_WhenOrderIdNotEqual_ShouldThrowOrderItemNotFoundException() {
+        UUID differentOrderId = UUID.randomUUID();
+        OrderItem orderItem = createOrderItemWithOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+
+        OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
+                () -> orderItemService.deleteOrderItem(orderId, orderItemId));
+
+        assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
+        verify(orderItemRepository, never()).delete(any(OrderItem.class));
+    }
+
+    @Test
+    public void changeUnitPrice_WhenOrderItemFound_ShouldChangeUnitPrice() {
+        BigDecimal newUnitPrice = new BigDecimal("8.00");
+        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
+
+        OrderItem result = orderItemService.changeUnitPrice(orderId, orderItemId, newUnitPrice);
+
+        assertEquals(orderItem.getOrder(), result.getOrder());
+        assertEquals(DEFAULT_SKU, result.getSku());
+        assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
+        assertEquals(newUnitPrice, result.getUnitPrice());
+        assertEquals(DEFUALT_QUANTITY, result.getQuantity());
+        verify(orderItemRepository).findById(orderItemId);
+        verify(orderItemRepository).save(result);
+    }
+
+    @Test
+    public void changeUnitPrice_WhenOrderItemNotFound_ShouldThrowOrderItemNotFoundException() {
+        BigDecimal newUnitPrice = new BigDecimal("8.00");
+        OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
+                () -> orderItemService.changeUnitPrice(orderId, orderItemId, newUnitPrice));
+
+        assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
+        verify(orderItemRepository, never()).save(any(OrderItem.class));
+    }
+
+    @Test
+    public void changeUnitPrice_WhenOrderIdNotEqual_ShouldThrowOrderItemNotFoundException() {
+        BigDecimal newUnitPrice = new BigDecimal("8.00");
+        UUID differentOrderId = UUID.randomUUID();
+        OrderItem orderItem = createOrderItemWithOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+
+        OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
+                () -> orderItemService.changeUnitPrice(orderId, orderItemId, newUnitPrice));
+
+        assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
+        verify(orderItemRepository, never()).save(any(OrderItem.class));
+    }
+
+    @Test
+    public void changeQuantity_WhenOrderItemFound_ShouldChangeQuantity() {
+        Long newQuantity = 22L;
+        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
+
+        OrderItem result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
+
+        assertEquals(orderItem.getOrder(), result.getOrder());
+        assertEquals(DEFAULT_SKU, result.getSku());
+        assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
+        assertEquals(DEFUALT_UNIT_PRICE, result.getUnitPrice());
+        assertEquals(newQuantity, result.getQuantity());
+        verify(orderItemRepository).findById(orderItemId);
+        verify(orderItemRepository).save(result);
+    }
+
+    @Test
+    public void changeQuantity_WhenOrderItemNotFound_ShouldThrowOrderItemNotFoundException() {
+        Long newQuantity = 22L;
+        OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
+                () -> orderItemService.changeQuantity(orderId, orderItemId, newQuantity));
+
+        assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
+        verify(orderItemRepository, never()).save(any(OrderItem.class));
+    }
+
+    @Test
+    public void changeQuantity_WhenOrderIdNotEqual_ShouldThrowOrderItemNotFoundException() {
+        Long newQuantity = 22L;
+        UUID differentOrderId = UUID.randomUUID();
+        OrderItem orderItem = createOrderItemWithOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+
+        OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
+                () -> orderItemService.changeQuantity(orderId, orderItemId, newQuantity));
+
+        assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
+        verify(orderItemRepository, never()).save(any(OrderItem.class));
+    }
+
+    private static CreateOrderItemRequest createOrderItemRequest() {
+        return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFUALT_UNIT_PRICE, DEFUALT_QUANTITY);
+    }
+
+    private static OrderItem createOrderItemWithOrder(UUID orderId, OrderStatus orderStatus) {
+        return new OrderItem(
+                createOrder(orderId, orderStatus),
+                DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFUALT_UNIT_PRICE, DEFUALT_QUANTITY);
+    }
+
+    private static Order createOrder(UUID orderId, OrderStatus orderStatus) {
+        return new Order(orderId, new Customer("email", "name"), "MXN", new BigDecimal("123.00"), orderStatus);
+    }
+
+}

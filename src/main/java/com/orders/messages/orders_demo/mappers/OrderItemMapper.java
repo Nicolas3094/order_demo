@@ -2,6 +2,7 @@ package com.orders.messages.orders_demo.mappers;
 
 import com.orders.messages.orders_demo.dtos.request.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.dtos.response.OrderItemResponse;
+import com.orders.messages.orders_demo.entity.Order;
 import com.orders.messages.orders_demo.entity.OrderItem;
 
 public final class OrderItemMapper {
@@ -16,8 +17,9 @@ public final class OrderItemMapper {
                 item.getLineTotal());
     }
 
-    public static OrderItem toEntity(CreateOrderItemRequest request) {
+    public static OrderItem toEntity(CreateOrderItemRequest request, Order order) {
         return new OrderItem(
+                order,
                 request.sku(),
                 request.description(),
                 request.unitPrice(),

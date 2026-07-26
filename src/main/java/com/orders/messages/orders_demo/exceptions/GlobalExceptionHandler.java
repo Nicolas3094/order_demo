@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.orders.messages.orders_demo.dtos.response.ErrorResponse;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerStateException;
+import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
 import com.orders.messages.orders_demo.exceptions.payment.InvalidPaymentStateException;
@@ -56,6 +57,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(OrderNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleOrderNotFound(
             OrderNotFoundException e, HttpServletRequest request) {
+        return handleNotFound(e, request);
+    }
+
+    /**
+     * Handles requests for non-existing order items
+     *
+     * @param e       the thrown {@link OrderItemNotFoundException}.
+     * @param request the current HTTP request.
+     * @return a {@code 404 Not Found} response containing the standardized error
+     *         payload.
+     */
+    @ExceptionHandler(OrderItemNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleOrderNotFound(
+            OrderItemNotFoundException e, HttpServletRequest request) {
         return handleNotFound(e, request);
     }
 
