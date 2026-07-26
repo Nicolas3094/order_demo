@@ -73,9 +73,11 @@ public class OrderController {
     }
 
     /*
-     * 
-     * Payment attempt.
-     * 
+     * Payment Attempt endpoints.
+     *
+     * TODO: These state-transition endpoints are temporary and exist only for
+     * development/testing. In production they will be triggered exclusively by
+     * payment gateway webhooks (e.g. Stripe, Mercado Pago).
      */
 
     @GetMapping("/{orderId}/payments/{paymentId}")
@@ -94,6 +96,8 @@ public class OrderController {
                         paymentAttemptService.createPaymentAttempt(orderId, paymentRequest)));
     }
 
+    // TODO: Replace manual state transition with payment gateway webhook. This
+    // endpoint is temporary for development and testing purposes.
     @PatchMapping("/{orderId}/payments/{paymentId}/processing")
     public ResponseEntity<PaymentAttemptResponse> startProcessing(
             @PathVariable UUID orderId,
@@ -103,6 +107,8 @@ public class OrderController {
                         paymentAttemptService.startProcessing(orderId, paymentId)));
     }
 
+    // TODO: Replace manual state transition with payment gateway webhook. The
+    // payment provider will notify successful payments asynchronously.
     @PatchMapping("/{orderId}/payments/{paymentId}/succeeded")
     public ResponseEntity<PaymentAttemptResponse> markPaymentAsSucceeded(
             @PathVariable UUID orderId,
@@ -114,6 +120,8 @@ public class OrderController {
                                 orderId, paymentId, paymentSucceededRequest.providerRef())));
     }
 
+    // TODO: Replace manual state transition with payment gateway webhook. Failure
+    // information will come directly from the payment provider.
     @PatchMapping("/{orderId}/payments/{paymentId}/failed")
     public ResponseEntity<PaymentAttemptResponse> markPaymentAsFailed(
             @PathVariable UUID orderId,
@@ -125,6 +133,8 @@ public class OrderController {
                                 orderId, paymentId, paymentFailedRequest.code(), paymentFailedRequest.errorMessage())));
     }
 
+    // TODO: Replace manual state transition with payment gateway webhook or
+    // internal payment orchestration. Clients should not invoke this endpoint.
     @PatchMapping("/{orderId}/payments/{paymentId}/cancel")
     public ResponseEntity<PaymentAttemptResponse> markPaymentAsCancelled(
             @PathVariable UUID orderId,

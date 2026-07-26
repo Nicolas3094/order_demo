@@ -333,29 +333,26 @@ public class OrderControllerTest {
         return new Order(createCustomer(customerId), DEFAULT_CURRENCY, DEFAULT_TOTAL_AMOUNT, status);
     }
 
+    @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsFromPending() {
         return Stream.of(
                 Arguments.of(
-                        new OrderAlreadyCancelledException(),
-                        "Order is already cancelled."),
+                        new OrderAlreadyCancelledException(), "Order is already cancelled."),
                 Arguments.of(
-                        new OrderAlreadyExpiredException(),
-                        "Expired orders cannot be modified."),
+                        new OrderAlreadyExpiredException(), "Expired orders cannot be modified."),
                 Arguments.of(
-                        new OrderAlreadyPaidException(),
-                        "Paid orders cannot be modified."));
+                        new OrderAlreadyPaidException(), "Paid orders cannot be modified."));
     }
 
+    @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsOnRefundOrder() {
         return Stream.of(
                 Arguments.of(
-                        new OrderAlreadyCancelledException(),
-                        "Order is already cancelled."),
+                        new OrderAlreadyCancelledException(), "Order is already cancelled."),
                 Arguments.of(
                         new InvalidOrderStateException("Only paid orders can be refunded."),
                         "Only paid orders can be refunded."),
                 Arguments.of(
-                        new OrderAlreadyExpiredException(),
-                        "Expired orders cannot be modified."));
+                        new OrderAlreadyExpiredException(), "Expired orders cannot be modified."));
     }
 }

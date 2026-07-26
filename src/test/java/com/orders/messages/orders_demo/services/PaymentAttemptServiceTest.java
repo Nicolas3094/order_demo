@@ -467,6 +467,7 @@ public class PaymentAttemptServiceTest {
         return new Order(id, new Customer("email", "name"), "mxn", new BigDecimal("12341.21"));
     }
 
+    @SuppressWarnings("unused")
     private static Stream<Arguments> invalidPaymentStateExceptionWhenPaymentIsCancelled() {
         return Stream.of(
                 Arguments.of(PaymentStatus.SUCCEEDED, "Successful payments cannot be cancelled."),

@@ -137,6 +137,7 @@ public class PaymentAttemptTest {
                 DEFAULT_ORDER, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY, status);
     }
 
+    @SuppressWarnings("unused")
     private static Stream<Arguments> invalidPaymentStateExceptionWhenPaymentIsCancelled() {
         return Stream.of(
                 Arguments.of(PaymentStatus.SUCCEEDED, "Successful payments cannot be cancelled."),
