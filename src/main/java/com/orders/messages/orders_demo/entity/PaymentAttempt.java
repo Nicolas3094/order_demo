@@ -71,6 +71,15 @@ public class PaymentAttempt {
     protected PaymentAttempt() {
     }
 
+    public PaymentAttempt(UUID id, Order order, PaymentProvider provider, String idempotencyKey) {
+        this.id = id;
+        this.order = order;
+        this.amount = order.getAmountTotal();
+        this.provider = provider;
+        this.idempotencyKey = idempotencyKey;
+        this.status = PaymentStatus.CREATED;
+    }
+
     public PaymentAttempt(Order order, PaymentProvider provider, String idempotencyKey) {
         this.order = order;
         this.amount = order.getAmountTotal();
@@ -80,6 +89,15 @@ public class PaymentAttempt {
     }
 
     public PaymentAttempt(Order order, PaymentProvider provider, String idempotencyKey, PaymentStatus status) {
+        this.order = order;
+        this.amount = order.getAmountTotal();
+        this.provider = provider;
+        this.idempotencyKey = idempotencyKey;
+        this.status = status;
+    }
+
+    public PaymentAttempt(UUID id, Order order, PaymentProvider provider, String idempotencyKey, PaymentStatus status) {
+        this.id = id;
         this.order = order;
         this.amount = order.getAmountTotal();
         this.provider = provider;

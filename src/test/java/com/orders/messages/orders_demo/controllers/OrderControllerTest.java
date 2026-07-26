@@ -27,17 +27,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orders.messages.orders_demo.dtos.request.CreateOrderRequest;
+import com.orders.messages.orders_demo.dtos.request.CreatePaymentAttemptRequest;
+import com.orders.messages.orders_demo.dtos.request.PaymentFailedRequest;
+import com.orders.messages.orders_demo.dtos.request.PaymentSucceededRequest;
 import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
+import com.orders.messages.orders_demo.entity.PaymentAttempt;
 import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.enums.OrderStatus;
+import com.orders.messages.orders_demo.enums.PaymentProvider;
+import com.orders.messages.orders_demo.enums.PaymentStatus;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyExpiredException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
+import com.orders.messages.orders_demo.exceptions.payment.PaymentNotFoundException;
 import com.orders.messages.orders_demo.services.OrderService;
+import com.orders.messages.orders_demo.services.PaymentAttemptService;
 
 @WebMvcTest(OrderController.class)
 public class OrderControllerTest {
@@ -48,17 +56,23 @@ public class OrderControllerTest {
 
     @MockitoBean
     private OrderService orderService;
+    @MockitoBean
+    private PaymentAttemptService paymentAttemptService;
 
     private UUID customerId;
     private UUID orderId;
+    private UUID paymentId;
 
     private static final BigDecimal DEFAULT_TOTAL_AMOUNT = new BigDecimal("123.00");
     private static final String DEFAULT_CURRENCY = "MXN";
+    private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
+    private static final String DEFAULT_PROVIDER_REF = "provider_ref";
 
     @BeforeEach
     public void setup() {
         customerId = UUID.randomUUID();
         orderId = UUID.randomUUID();
+        paymentId = UUID.randomUUID();
     }
 
     @Test
@@ -313,12 +327,204 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/expire"));
     }
 
+    /*
+     * 
+     * PAYMENT ATTEMPT
+     * 
+     */
+
+    @Test
+    public void getPayment_ShouldReturn200() throws Exception {
+        Order order = createPendingOrder(customerId);
+        PaymentAttempt paymentAttempt = createPaymentAttempt(paymentId, order);
+        when(paymentAttemptService.getPaymentAttempt(orderId, paymentId)).thenReturn(paymentAttempt);
+
+        mvc.perform(get("/api/v1/orders/{orderId}/payments/{paymentId}", orderId, paymentId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(paymentId.toString()))
+                .andExpect(jsonPath("$.provider").value("NONE"))
+                .andExpect(jsonPath("$.idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$.status").value("CREATED"));
+        verify(paymentAttemptService).getPaymentAttempt(orderId, paymentId);
+    }
+
+    @Test
+    void getPayment_WhenPaymentNotFound_ShouldReturn404() throws Exception {
+        when(paymentAttemptService.getPaymentAttempt(orderId, paymentId))
+                .thenThrow(new PaymentNotFoundException());
+
+        mvc.perform(get("/api/v1/orders/{orderId}/payments/{paymentId}", orderId, paymentId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Payment attempt not found."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/payments/" + paymentId));
+    }
+
+    @Test
+    public void createPayment_WhenRequestIsValid_ShouldReturn201() throws Exception {
+        CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(
+                PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
+        Order order = createPendingOrder(customerId);
+        PaymentAttempt paymentAttempt = createPaymentAttempt(paymentId, order);
+        when(paymentAttemptService.createPaymentAttempt(orderId, request)).thenReturn(paymentAttempt);
+
+        mvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(paymentId.toString()))
+                .andExpect(jsonPath("$.provider").value("NONE"))
+                .andExpect(jsonPath("$.idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$.status").value("CREATED"));
+        verify(paymentAttemptService).createPaymentAttempt(orderId, request);
+    }
+
+    @Test
+    void createPayment_WhenPaymentNotFound_ShouldReturn404() throws Exception {
+        CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(
+                PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
+        when(paymentAttemptService.createPaymentAttempt(orderId, request))
+                .thenThrow(new PaymentNotFoundException());
+
+        mvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Payment attempt not found."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/payments"));
+    }
+
+    @Test
+    public void createPayment_WhenValidationFailsWithEmptyProvider_ShouldReturn400() throws Exception {
+        CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(
+                null, DEFAULT_IDEMPOTENCY_KEY);
+        Order order = createPendingOrder(customerId);
+        PaymentAttempt paymentAttempt = createPaymentAttempt(paymentId, order);
+        when(paymentAttemptService.createPaymentAttempt(orderId, request)).thenReturn(paymentAttempt);
+
+        mvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Payment must have provider."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/payments"));
+    }
+
+    @Test
+    public void createPayment_WhenValidationFailsWithEmptyIdempotencyKey_ShouldReturn400() throws Exception {
+        CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(
+                PaymentProvider.NONE, null);
+        Order order = createPendingOrder(customerId);
+        PaymentAttempt paymentAttempt = createPaymentAttempt(paymentId, order);
+        when(paymentAttemptService.createPaymentAttempt(orderId, request)).thenReturn(paymentAttempt);
+
+        mvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").value("Payment must have idempotency key."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/payments"));
+    }
+
+    @Test
+    public void startProcessing_ShouldReturn200() throws Exception {
+        Order order = createOrderWithStatus(customerId, OrderStatus.PENDING_PAYMENT);
+        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order, PaymentStatus.PROCESSING);
+        when(paymentAttemptService.startProcessing(orderId, paymentId)).thenReturn(paymentAttempt);
+
+        mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/processing", orderId, paymentId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(paymentId.toString()))
+                .andExpect(jsonPath("$.provider").value("NONE"))
+                .andExpect(jsonPath("$.idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$.status").value("PROCESSING"));
+        verify(paymentAttemptService).startProcessing(orderId, paymentId);
+    }
+
+    @Test
+    public void markPaymentAsSucceeded_ShouldReturn200() throws Exception {
+        PaymentSucceededRequest paymentSucceededRequest = new PaymentSucceededRequest(DEFAULT_PROVIDER_REF);
+        Order order = createOrderWithStatus(customerId, OrderStatus.PAID);
+        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order, PaymentStatus.SUCCEEDED);
+        when(paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF))
+                .thenReturn(paymentAttempt);
+
+        mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/succeeded", orderId, paymentId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(paymentSucceededRequest)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(paymentId.toString()))
+                .andExpect(jsonPath("$.provider").value("NONE"))
+                .andExpect(jsonPath("$.idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"));
+        verify(paymentAttemptService).markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF);
+    }
+
+    @Test
+    public void markPaymentAsFailed_ShouldReturn200() throws Exception {
+        PaymentFailedRequest paymentFailedRequest = new PaymentFailedRequest(500, "Internal error.");
+        Order order = createOrderWithStatus(customerId, OrderStatus.PENDING_PAYMENT);
+        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order, PaymentStatus.FAILED);
+        when(paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Internal error."))
+                .thenReturn(paymentAttempt);
+
+        mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/failed", orderId, paymentId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(paymentFailedRequest)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(paymentId.toString()))
+                .andExpect(jsonPath("$.provider").value("NONE"))
+                .andExpect(jsonPath("$.idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$.status").value("FAILED"));
+        verify(paymentAttemptService).markAsFailed(orderId, paymentId, 500, "Internal error.");
+    }
+
+    @Test
+    public void markPaymentAsCancelled_ShouldReturn200() throws Exception {
+        Order order = createOrderWithStatus(customerId, OrderStatus.PENDING_PAYMENT);
+        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order, PaymentStatus.CANCELLED);
+        when(paymentAttemptService.markAsCancelled(orderId, paymentId)).thenReturn(paymentAttempt);
+
+        mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/cancel", orderId, paymentId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(paymentId.toString()))
+                .andExpect(jsonPath("$.provider").value("NONE"))
+                .andExpect(jsonPath("$.idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        verify(paymentAttemptService).markAsCancelled(orderId, paymentId);
+    }
+
     private static CreateOrderRequest createValidRequest(UUID customerId) {
         return CreateOrderRequest.builder()
                 .setCustomerId(customerId)
                 .setCurrency(DEFAULT_CURRENCY)
                 .setAmountTotal(new BigDecimal("123.00"))
                 .build();
+    }
+
+    private static PaymentAttempt createPaymentAttempt(UUID id, Order order) {
+        return new PaymentAttempt(id, order, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
+    }
+
+    private static PaymentAttempt createPaymentAttemptWithStatus(UUID id, Order order, PaymentStatus status) {
+        return new PaymentAttempt(id, order, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY, status);
     }
 
     private static Customer createCustomer(UUID customerId) {
@@ -336,23 +542,17 @@ public class OrderControllerTest {
     @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsFromPending() {
         return Stream.of(
-                Arguments.of(
-                        new OrderAlreadyCancelledException(), "Order is already cancelled."),
-                Arguments.of(
-                        new OrderAlreadyExpiredException(), "Expired orders cannot be modified."),
-                Arguments.of(
-                        new OrderAlreadyPaidException(), "Paid orders cannot be modified."));
+                Arguments.of(new OrderAlreadyCancelledException(), "Order is already cancelled."),
+                Arguments.of(new OrderAlreadyExpiredException(), "Expired orders cannot be modified."),
+                Arguments.of(new OrderAlreadyPaidException(), "Paid orders cannot be modified."));
     }
 
     @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsOnRefundOrder() {
         return Stream.of(
-                Arguments.of(
-                        new OrderAlreadyCancelledException(), "Order is already cancelled."),
-                Arguments.of(
-                        new InvalidOrderStateException("Only paid orders can be refunded."),
+                Arguments.of(new OrderAlreadyCancelledException(), "Order is already cancelled."),
+                Arguments.of(new InvalidOrderStateException("Only paid orders can be refunded."),
                         "Only paid orders can be refunded."),
-                Arguments.of(
-                        new OrderAlreadyExpiredException(), "Expired orders cannot be modified."));
+                Arguments.of(new OrderAlreadyExpiredException(), "Expired orders cannot be modified."));
     }
 }

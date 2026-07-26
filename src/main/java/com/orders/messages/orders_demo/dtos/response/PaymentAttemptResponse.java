@@ -17,7 +17,7 @@ public record PaymentAttemptResponse(
         String failureMessage,
         Integer failureCode,
         Instant createdAt,
-        Instant updatedAts) {
+        Instant updatedAt) {
 
     public static Builder builder() {
         return new Builder();

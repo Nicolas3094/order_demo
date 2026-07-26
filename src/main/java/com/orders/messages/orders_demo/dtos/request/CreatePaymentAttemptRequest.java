@@ -12,7 +12,7 @@ import jakarta.validation.constraints.NotNull;
  * @param idempotencyKey a unique identifier for a payment.
  */
 public record CreatePaymentAttemptRequest(
-        @NotNull(message = "Payment must have provide.") PaymentProvider provider,
+        @NotNull(message = "Payment must have provider.") PaymentProvider provider,
 
         @NotBlank(message = "Payment must have idempotency key.") String idempotencyKey) {
 }
