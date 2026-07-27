@@ -22,7 +22,10 @@ public final class OrderMapper {
     }
 
     public static Order toEntity(CreateOrderRequest orderRequest, Customer customer) {
-        return new Order(customer, orderRequest.currency(), orderRequest.amountTotal());
+        return Order.builder()
+                .customer(customer)
+                .currency(orderRequest.currency())
+                .build();
     }
 
 }

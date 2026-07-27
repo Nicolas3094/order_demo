@@ -1,6 +1,5 @@
 package com.orders.messages.orders_demo.entity;
 
-import java.math.BigDecimal;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,12 +18,16 @@ public class PaymentAttemptTest {
 
     private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
     private static final Customer DEFAULT_CUSTOMER = new Customer("email", "name");
-    private static final Order DEFAULT_ORDER = new Order(DEFAULT_CUSTOMER, "MXN", new BigDecimal("123.00"));
+    private static final Order DEFAULT_ORDER = Order.builder()
+            .customer(DEFAULT_CUSTOMER)
+            .currency("MXN")
+            .build();
+
+    // new Order(DEFAULT_CUSTOMER, "MXN", new BigDecimal("123.00"));
 
     @Test
     public void paymentAttemptConstructor_ShouldSetStatusAsCreated() {
         PaymentAttempt result = new PaymentAttempt(DEFAULT_ORDER, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-
         assertEquals(PaymentStatus.CREATED, result.getStatus());
     }
 

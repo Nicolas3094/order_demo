@@ -43,7 +43,7 @@ public class OrderServiceTest {
 
     @BeforeEach
     public void setup() {
-        fakeOrder = new Order(new Customer("email", "name"), "mxn", new BigDecimal(12341.2131));
+        fakeOrder = Order.builder().customer(new Customer("email", "name")).currency("MXN").build();
         orderId = fakeOrder.getId();
     }
 
@@ -71,7 +71,6 @@ public class OrderServiceTest {
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
                 .setCustomerId(customerId)
                 .setCurrency("currency")
-                .setAmountTotal(new BigDecimal(123))
                 .build();
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -80,7 +79,7 @@ public class OrderServiceTest {
 
         assertEquals(customer, result.getCustomer());
         assertEquals(orderRequest.currency(), result.getCurrency());
-        assertEquals(orderRequest.amountTotal(), result.getAmountTotal());
+        assertEquals(BigDecimal.ZERO, result.getAmountTotal());
         assertEquals(OrderStatus.PENDING_PAYMENT, result.getStatus());
     }
 
@@ -90,7 +89,6 @@ public class OrderServiceTest {
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
                 .setCustomerId(customerId)
                 .setCurrency("currency")
-                .setAmountTotal(new BigDecimal(123))
                 .build();
 
         Exception result = assertThrows(CustomerNotFoundException.class, () -> orderService.createOrder(orderRequest));

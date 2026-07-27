@@ -1,6 +1,7 @@
 package com.orders.messages.orders_demo.entity;
 
 import java.math.BigDecimal;
+import java.util.Objects;
 import java.util.UUID;
 
 import com.orders.messages.orders_demo.exceptions.order_item.InvalidOrderItemStateException;
@@ -37,6 +38,7 @@ public class OrderItem {
     @Column(nullable = false)
     private BigDecimal unitPrice;
 
+    @Column(nullable = false)
     private BigDecimal lineTotal;
 
     @Column(nullable = false)
@@ -45,21 +47,22 @@ public class OrderItem {
     protected OrderItem() {
     }
 
-    public OrderItem(String sku, String description, BigDecimal unitPrice, Long quantity) {
-        this.sku = sku;
-        this.description = description;
-        this.unitPrice = unitPrice;
-        this.quantity = quantity;
+    private OrderItem(Builder builder) {
+        this.id = builder.id;
+        this.sku = builder.sku;
+        this.description = builder.description;
+        this.unitPrice = builder.unitPrice;
+        this.quantity = builder.quantity;
+
         updateLineTotal();
     }
 
-    public OrderItem(Order order, String sku, String description, BigDecimal unitPrice, Long quantity) {
+    void attachOrder(Order order) {
         this.order = order;
-        this.sku = sku;
-        this.description = description;
-        this.unitPrice = unitPrice;
-        this.quantity = quantity;
-        updateLineTotal();
+    }
+
+    void detachOrder() {
+        this.order = null;
     }
 
     public UUID getId() {
@@ -93,7 +96,7 @@ public class OrderItem {
     public void changeUnitPrice(BigDecimal unitPrice) {
         validateOrderCanModifyItems();
 
-        this.unitPrice = unitPrice;
+        this.unitPrice = Objects.requireNonNull(unitPrice);
 
         updateLineTotal();
     }
@@ -101,12 +104,16 @@ public class OrderItem {
     public void changeQuantity(Long quantity) {
         validateOrderCanModifyItems();
 
-        this.quantity = quantity;
+        this.quantity = Objects.requireNonNull(quantity);
 
         updateLineTotal();
     }
 
     private void validateOrderCanModifyItems() {
+        if (order == null) {
+            throw new IllegalStateException("OrderItem is not attached to an Order.");
+        }
+
         if (!order.canAcceptPayments()) {
             throw new InvalidOrderItemStateException(
                     "Only pending orders can modify items.");
@@ -115,6 +122,67 @@ public class OrderItem {
 
     private void updateLineTotal() {
         this.lineTotal = unitPrice.multiply(BigDecimal.valueOf(quantity));
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static final class Builder {
+        private UUID id;
+        private String sku = "SKU";
+        private String description = "";
+        private BigDecimal unitPrice = BigDecimal.ZERO;
+        private Long quantity = 1L;
+
+        public OrderItem build() {
+            return new OrderItem(this);
+        }
+
+        public Builder id(UUID id) {
+            this.id = id;
+            return this;
+        }
+
+        public Builder sku(String sku) {
+            this.sku = Objects.requireNonNull(sku);
+
+            if (sku.isBlank()) {
+                throw new IllegalArgumentException("Sku cannot be blank.");
+            }
+
+            return this;
+        }
+
+        public Builder description(String description) {
+            this.description = Objects.requireNonNull(description);
+            return this;
+        }
+
+        public Builder unitPrice(BigDecimal unitPrice) {
+            this.unitPrice = Objects.requireNonNull(unitPrice);
+            return this;
+        }
+
+        public Builder quantity(Long quantity) {
+            this.quantity = Objects.requireNonNull(quantity);
+            return this;
+        }
+
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (!(obj instanceof OrderItem other))
+            return false;
+        return Objects.equals(id, other.id);
     }
 
 }

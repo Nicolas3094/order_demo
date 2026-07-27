@@ -2,6 +2,10 @@ package com.orders.messages.orders_demo.entity;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.hibernate.annotations.CreationTimestamp;
@@ -13,6 +17,8 @@ import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledEx
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyExpiredException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyPaidException;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -23,6 +29,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
@@ -38,10 +45,13 @@ public class Order {
     @JoinColumn(name = "customer_id", nullable = false, foreignKey = @ForeignKey(name = "fk_order_customer"))
     private Customer customer;
 
+    @Column(nullable = false)
     private String currency;
 
+    @Column(nullable = false)
     private BigDecimal amountTotal;
 
+    @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private OrderStatus status;
 
@@ -56,37 +66,21 @@ public class Order {
 
     private Instant expiresAt;
 
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OrderItem> items = new ArrayList<>();
+
     protected Order() {
     }
 
-    public Order(Customer customer, String currency, BigDecimal amountTotal) {
-        this.customer = customer;
-        this.currency = currency;
-        this.amountTotal = amountTotal;
-        status = OrderStatus.PENDING_PAYMENT;
-    }
+    private Order(Builder builder) {
+        this.id = builder.id;
+        this.customer = builder.customer;
+        this.currency = builder.currency;
+        this.status = builder.status;
 
-    public Order(UUID id, Customer customer, String currency, BigDecimal amountTotal) {
-        this.id = id;
-        this.customer = customer;
-        this.currency = currency;
-        this.amountTotal = amountTotal;
-        status = OrderStatus.PENDING_PAYMENT;
-    }
+        this.items.addAll(builder.items);
 
-    public Order(Customer customer, String currency, BigDecimal amountTotal, OrderStatus status) {
-        this.customer = customer;
-        this.currency = currency;
-        this.amountTotal = amountTotal;
-        this.status = status;
-    }
-
-    public Order(UUID id, Customer customer, String currency, BigDecimal amountTotal, OrderStatus status) {
-        this.id = id;
-        this.customer = customer;
-        this.currency = currency;
-        this.amountTotal = amountTotal;
-        this.status = status;
+        recalculateAmountTotal();
     }
 
     public UUID getId() {
@@ -125,6 +119,30 @@ public class Order {
         return expiresAt;
     }
 
+    public List<OrderItem> getItems() {
+        return Collections.unmodifiableList(items);
+    }
+
+    public void addItem(OrderItem orderItem) {
+        items.add(Objects.requireNonNull(orderItem));
+        orderItem.attachOrder(this);
+        recalculateAmountTotal();
+    }
+
+    public void removeItem(OrderItem orderItem) {
+        items.remove(Objects.requireNonNull(orderItem));
+        orderItem.detachOrder();
+        recalculateAmountTotal();
+    }
+
+    private void recalculateAmountTotal() {
+        amountTotal = BigDecimal.ZERO;
+
+        for (OrderItem item : items) {
+            amountTotal = amountTotal.add(item.getLineTotal());
+        }
+    }
+
     public void cancelOrder() {
         changeStatusFromPending(OrderStatus.CANCELLED);
     }
@@ -160,6 +178,81 @@ public class Order {
             case PAID -> throw new OrderAlreadyPaidException();
             default -> throw new InvalidOrderStateException("Unknown order state");
         }
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static final class Builder {
+        private UUID id;
+        private Customer customer;
+        private String currency;
+        private List<OrderItem> items = new ArrayList<>();
+        private OrderStatus status = OrderStatus.PENDING_PAYMENT;
+
+        public Order build() {
+            if (customer == null) {
+                throw new IllegalStateException("Customer is required.");
+            }
+
+            if (currency == null || currency.isBlank()) {
+                throw new IllegalStateException("Currency is required.");
+            }
+
+            Order order = new Order(this);
+
+            for (OrderItem item : order.items) {
+                item.attachOrder(order);
+            }
+
+            return order;
+        }
+
+        public Builder id(UUID id) {
+            this.id = id;
+            return this;
+        }
+
+        public Builder customer(Customer customer) {
+            this.customer = customer;
+            return this;
+        }
+
+        public Builder currency(String currency) {
+            this.currency = currency;
+            return this;
+        }
+
+        public Builder items(List<OrderItem> items) {
+            this.items = new ArrayList<>(Objects.requireNonNull(items));
+            return this;
+        }
+
+        public Builder addItem(OrderItem item) {
+            this.items.add(Objects.requireNonNull(item));
+            return this;
+        }
+
+        public Builder status(OrderStatus status) {
+            this.status = Objects.requireNonNull(status);
+            return this;
+        }
+
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (!(obj instanceof Order other))
+            return false;
+        return Objects.equals(id, other.id);
     }
 
 }

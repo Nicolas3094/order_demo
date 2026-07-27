@@ -1,23 +1,19 @@
 package com.orders.messages.orders_demo.dtos.request;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 
 /**
  * Request payload used to create a new order.
  *
- * @param customerId  identifier of the customer who owns the order.
- * @param currency    ISO 4217 currency code (e.g. MXN, USD).
- * @param amountTotal total monetary amount of the order.
+ * @param customerId identifier of the customer who owns the order.
+ * @param currency   ISO 4217 currency code (e.g. MXN, USD).
  */
 public record CreateOrderRequest(
         @NotNull(message = "Customer id is required.") UUID customerId,
-        @NotBlank(message = "Currency is required.") String currency,
-        @Positive(message = "Amount must be greater than zero.") BigDecimal amountTotal) {
+        @NotBlank(message = "Currency is required.") String currency) {
 
     public static Builder builder() {
         return new Builder();
@@ -26,10 +22,9 @@ public record CreateOrderRequest(
     public static final class Builder {
         private UUID customerId;
         private String currency;
-        private BigDecimal amountTotal;
 
         public CreateOrderRequest build() {
-            return new CreateOrderRequest(customerId, currency, amountTotal);
+            return new CreateOrderRequest(customerId, currency);
         }
 
         public Builder setCustomerId(UUID customerId) {
@@ -39,11 +34,6 @@ public record CreateOrderRequest(
 
         public Builder setCurrency(String currency) {
             this.currency = currency;
-            return this;
-        }
-
-        public Builder setAmountTotal(BigDecimal amountTotal) {
-            this.amountTotal = amountTotal;
             return this;
         }
 

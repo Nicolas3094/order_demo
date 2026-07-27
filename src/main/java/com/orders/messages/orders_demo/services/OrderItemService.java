@@ -38,7 +38,13 @@ public class OrderItemService {
 
         validatePendingOrder(order);
 
-        return orderItemRepository.save(OrderItemMapper.toEntity(request, order));
+        OrderItem item = OrderItemMapper.toEntity(request);
+
+        order.addItem(item);
+
+        orderRepository.save(order);
+
+        return item;
     }
 
     @Transactional
@@ -65,7 +71,11 @@ public class OrderItemService {
 
         validatePendingOrder(orderItem.getOrder());
 
-        orderItemRepository.delete(orderItem);
+        Order order = orderItem.getOrder();
+
+        order.removeItem(orderItem);
+
+        orderRepository.save(order);
     }
 
     /**

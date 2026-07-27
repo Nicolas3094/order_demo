@@ -1,6 +1,5 @@
 package com.orders.messages.orders_demo.services;
 
-import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -460,11 +459,16 @@ public class PaymentAttemptServiceTest {
     }
 
     private static Order createOrderWithStatusAndId(UUID orderId, OrderStatus status) {
-        return new Order(orderId, new Customer("email", "name"), "mxn", new BigDecimal("12341.21"), status);
+        return Order.builder().id(orderId).customer(new Customer("email", "name")).currency("MXN").status(status)
+                .build();
+        // return new Order(orderId, new Customer("email", "name"), "mxn", new
+        // BigDecimal("12341.21"), status);
     }
 
     private static Order createOrderWithId(UUID id) {
-        return new Order(id, new Customer("email", "name"), "mxn", new BigDecimal("12341.21"));
+        return Order.builder().id(id).customer(new Customer("email", "name")).currency("MXN").build();
+        // return new Order(id, new Customer("email", "name"), "mxn", new
+        // BigDecimal("12341.21"));
     }
 
     @SuppressWarnings("unused")

@@ -75,14 +75,13 @@ public class OrderControllerTest {
     private UUID orderItemId;
     private UUID paymentId;
 
-    private static final BigDecimal DEFAULT_TOTAL_AMOUNT = new BigDecimal("123.00");
     private static final String DEFAULT_CURRENCY = "MXN";
     private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
     private static final String DEFAULT_PROVIDER_REF = "provider_ref";
     private static final String DEFAULT_SKU = "sku";
     private static final String DEFAULT_DESCRIPTION = "description";
-    private static final BigDecimal DEFAULT_UNIT_PRICE = new BigDecimal("12.00");
-    private static final Long DEFAULT_QUANTITY = 10L;
+    private static final BigDecimal DEFAULT_UNIT_PRICE = new BigDecimal("123.00");
+    private static final Long DEFAULT_QUANTITY = 1L;
 
     @BeforeEach
     public void setup() {
@@ -95,6 +94,7 @@ public class OrderControllerTest {
     @Test
     public void getOrder_ShouldReturn200() throws Exception {
         Order order = createPendingOrder(customerId);
+        order.addItem(createOrderItem());
         when(orderService.getOrder(orderId)).thenReturn(order);
 
         mvc.perform(get("/api/v1/orders/{id}", orderId)).andExpect(status().isOk())
@@ -124,6 +124,7 @@ public class OrderControllerTest {
     public void createOrder_WhenRequestIsValid_ShouldReturn201() throws Exception {
         CreateOrderRequest request = createValidRequest(customerId);
         Order order = createPendingOrder(customerId);
+        order.addItem(createOrderItem());
         when(orderService.createOrder(request)).thenReturn(order);
 
         mvc.perform(post("/api/v1/orders")
@@ -155,31 +156,9 @@ public class OrderControllerTest {
     }
 
     @Test
-    public void createOrder_WhenValidationFailsWithNegativeAmountTotal_ShouldReturn400() throws Exception {
-        BigDecimal amountTotal = new BigDecimal("-123.00");
-        CreateOrderRequest request = CreateOrderRequest.builder()
-                .setCustomerId(customerId)
-                .setCurrency(DEFAULT_CURRENCY)
-                .setAmountTotal(amountTotal)
-                .build();
-
-        mvc.perform(post("/api/v1/orders")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value("Amount must be greater than zero."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders"));
-        verify(orderService, never()).createOrder(any());
-    }
-
-    @Test
     public void createOrder_WhenValidationFailsWithNullCustomerId_ShouldReturn400() throws Exception {
         CreateOrderRequest request = CreateOrderRequest.builder()
                 .setCurrency(DEFAULT_CURRENCY)
-                .setAmountTotal(DEFAULT_TOTAL_AMOUNT)
                 .build();
 
         mvc.perform(post("/api/v1/orders")
@@ -200,7 +179,6 @@ public class OrderControllerTest {
         CreateOrderRequest request = CreateOrderRequest.builder()
                 .setCustomerId(customerId)
                 .setCurrency(currency)
-                .setAmountTotal(DEFAULT_TOTAL_AMOUNT)
                 .build();
 
         mvc.perform(post("/api/v1/orders")
@@ -218,6 +196,7 @@ public class OrderControllerTest {
     @Test
     public void cancelOrder_WhenOrderIsOnPending_ShouldReturn200() throws Exception {
         Order order = createOrderWithStatus(customerId, OrderStatus.CANCELLED);
+        order.addItem(createOrderItem());
         when(orderService.cancelOrder(orderId)).thenReturn(order);
 
         mvc.perform(patch("/api/v1/orders/{id}/cancel", orderId))
@@ -261,6 +240,7 @@ public class OrderControllerTest {
     @Test
     public void refundOrder_WhenOrderIsValid_ShouldReturn200() throws Exception {
         Order order = createOrderWithStatus(customerId, OrderStatus.REFUNDED);
+        order.addItem(createOrderItem());
         when(orderService.refundOrder(orderId)).thenReturn(order);
 
         mvc.perform(patch("/api/v1/orders/{id}/refund", orderId))
@@ -304,6 +284,7 @@ public class OrderControllerTest {
     @Test
     public void expireOrder_WhenOrderIsValid_ShouldReturn200() throws Exception {
         Order order = createOrderWithStatus(customerId, OrderStatus.EXPIRED);
+        order.addItem(createOrderItem());
         when(orderService.expireOrder(orderId)).thenReturn(order);
 
         mvc.perform(patch("/api/v1/orders/{id}/expire", orderId))
@@ -352,7 +333,10 @@ public class OrderControllerTest {
 
     @Test
     public void getOrderItem_ShouldReturn200() throws Exception {
-        OrderItem orderItem = createOrderItem(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createPendingOrder(customerId);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
+
         when(orderItemService.getOrderItem(orderId, orderItemId))
                 .thenReturn(orderItem);
 
@@ -361,7 +345,7 @@ public class OrderControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.sku").value(DEFAULT_SKU))
                 .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION))
-                .andExpect(jsonPath("$.unitPrice").value(12.00))
+                .andExpect(jsonPath("$.unitPrice").value(123.00))
                 .andExpect(jsonPath("$.quantity").value(DEFAULT_QUANTITY));
         verify(orderItemService).getOrderItem(orderId, orderItemId);
     }
@@ -383,7 +367,9 @@ public class OrderControllerTest {
     @Test
     public void createOrderItem_WhenRequestIsValid_ShouldReturn201() throws Exception {
         CreateOrderItemRequest request = createOrderItemRequest();
-        OrderItem orderItem = createOrderItem(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createPendingOrder(customerId);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemService.createOrderItem(orderId, request)).thenReturn(orderItem);
 
         mvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
@@ -393,7 +379,7 @@ public class OrderControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.sku").value(DEFAULT_SKU))
                 .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION))
-                .andExpect(jsonPath("$.unitPrice").value(12.00))
+                .andExpect(jsonPath("$.unitPrice").value(123.00))
                 .andExpect(jsonPath("$.quantity").value(DEFAULT_QUANTITY));
         verify(orderItemService).createOrderItem(orderId, request);
     }
@@ -418,7 +404,8 @@ public class OrderControllerTest {
     public void createOrderItem_WhenOrderCannotReceiveItems_ShouldReturn409() throws Exception {
         CreateOrderItemRequest request = createOrderItemRequest();
         when(orderItemService.createOrderItem(orderId, request))
-                .thenThrow(new InvalidOrderItemStateException("Only pending orders can receive items."));
+                .thenThrow(new InvalidOrderItemStateException(
+                        "Only pending orders can receive items."));
 
         mvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -521,7 +508,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.message").value("Order item not found."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + orderItemId));
+                .andExpect(jsonPath("$.path")
+                        .value("/api/v1/orders/" + orderId + "/items/" + orderItemId));
         verify(orderItemService).deleteOrderItem(orderId, orderItemId);
     }
 
@@ -538,7 +526,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.error").value("Conflict"))
                 .andExpect(jsonPath("$.message").value("Only pending orders can modify items."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + orderItemId));
+                .andExpect(jsonPath("$.path")
+                        .value("/api/v1/orders/" + orderId + "/items/" + orderItemId));
         verify(orderItemService).deleteOrderItem(orderId, orderItemId);
     }
 
@@ -546,7 +535,9 @@ public class OrderControllerTest {
     public void changeOrderItemUnitPrice_ShouldReturn200() throws Exception {
         BigDecimal newUnitPrice = new BigDecimal("8.00");
         OrderItemChangeUnitPriceRequest request = new OrderItemChangeUnitPriceRequest(newUnitPrice);
-        OrderItem orderItem = createOrderItem(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createPendingOrder(customerId);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         orderItem.changeUnitPrice(newUnitPrice);
         when(orderItemService.changeUnitPrice(orderId, orderItemId, newUnitPrice))
                 .thenReturn(orderItem);
@@ -580,7 +571,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.message").value("Order item not found."))
                 .andExpect(jsonPath("$.path")
-                        .value("/api/v1/orders/" + orderId + "/items/" + orderItemId + "/price"));
+                        .value("/api/v1/orders/" + orderId + "/items/" + orderItemId
+                                + "/price"));
         verify(orderItemService).changeUnitPrice(orderId, orderItemId, newUnitPrice);
     }
 
@@ -600,7 +592,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.error").value("Conflict"))
                 .andExpect(jsonPath("$.message").value("Only pending orders can modify items."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + orderItemId + "/price"));
+                .andExpect(jsonPath("$.path").value(
+                        "/api/v1/orders/" + orderId + "/items/" + orderItemId + "/price"));
         verify(orderItemService).changeUnitPrice(orderId, orderItemId, newUnitPrice);
     }
 
@@ -621,7 +614,9 @@ public class OrderControllerTest {
     public void changeOrderItemQuantity_ShouldReturn200() throws Exception {
         Long newQuantity = 20L;
         OrderItemChangeQuantityRequest request = new OrderItemChangeQuantityRequest(newQuantity);
-        OrderItem orderItem = createOrderItem(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createPendingOrder(customerId);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         orderItem.changeQuantity(newQuantity);
         when(orderItemService.changeQuantity(orderId, orderItemId, newQuantity)).thenReturn(orderItem);
 
@@ -632,7 +627,7 @@ public class OrderControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.sku").value(DEFAULT_SKU))
                 .andExpect(jsonPath("$.description").value(DEFAULT_DESCRIPTION))
-                .andExpect(jsonPath("$.unitPrice").value(12.00))
+                .andExpect(jsonPath("$.unitPrice").value(123.00))
                 .andExpect(jsonPath("$.quantity").value(newQuantity));
         verify(orderItemService).changeQuantity(orderId, orderItemId, newQuantity);
     }
@@ -653,7 +648,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.message").value("Order item not found."))
                 .andExpect(
-                        jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + orderItemId + "/quantity"));
+                        jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/"
+                                + orderItemId + "/quantity"));
         verify(orderItemService).changeQuantity(orderId, orderItemId, newQuantity);
     }
 
@@ -673,7 +669,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.error").value("Conflict"))
                 .andExpect(jsonPath("$.message").value("Only pending orders can modify items."))
                 .andExpect(
-                        jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + orderItemId + "/quantity"));
+                        jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/"
+                                + orderItemId + "/quantity"));
         verify(orderItemService).changeQuantity(orderId, orderItemId, newQuantity);
     }
 
@@ -725,7 +722,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.message").value("Payment attempt not found."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/payments/" + paymentId));
+                .andExpect(jsonPath("$.path")
+                        .value("/api/v1/orders/" + orderId + "/payments/" + paymentId));
     }
 
     @Test
@@ -807,7 +805,8 @@ public class OrderControllerTest {
     @Test
     public void startProcessing_ShouldReturn200() throws Exception {
         Order order = createOrderWithStatus(customerId, OrderStatus.PENDING_PAYMENT);
-        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order, PaymentStatus.PROCESSING);
+        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order,
+                PaymentStatus.PROCESSING);
         when(paymentAttemptService.startProcessing(orderId, paymentId)).thenReturn(paymentAttempt);
 
         mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/processing", orderId, paymentId))
@@ -824,7 +823,8 @@ public class OrderControllerTest {
     public void markPaymentAsSucceeded_ShouldReturn200() throws Exception {
         PaymentSucceededRequest paymentSucceededRequest = new PaymentSucceededRequest(DEFAULT_PROVIDER_REF);
         Order order = createOrderWithStatus(customerId, OrderStatus.PAID);
-        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order, PaymentStatus.SUCCEEDED);
+        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order,
+                PaymentStatus.SUCCEEDED);
         when(paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF))
                 .thenReturn(paymentAttempt);
 
@@ -863,7 +863,8 @@ public class OrderControllerTest {
     @Test
     public void markPaymentAsCancelled_ShouldReturn200() throws Exception {
         Order order = createOrderWithStatus(customerId, OrderStatus.PENDING_PAYMENT);
-        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order, PaymentStatus.CANCELLED);
+        PaymentAttempt paymentAttempt = createPaymentAttemptWithStatus(paymentId, order,
+                PaymentStatus.CANCELLED);
         when(paymentAttemptService.markAsCancelled(orderId, paymentId)).thenReturn(paymentAttempt);
 
         mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/cancel", orderId, paymentId))
@@ -880,7 +881,6 @@ public class OrderControllerTest {
         return CreateOrderRequest.builder()
                 .setCustomerId(customerId)
                 .setCurrency(DEFAULT_CURRENCY)
-                .setAmountTotal(new BigDecimal("123.00"))
                 .build();
     }
 
@@ -897,21 +897,32 @@ public class OrderControllerTest {
     }
 
     private static Order createPendingOrder(UUID customerId) {
-        return new Order(createCustomer(customerId), DEFAULT_CURRENCY, DEFAULT_TOTAL_AMOUNT);
+        return Order.builder()
+                .customer(createCustomer(customerId))
+                .currency(DEFAULT_CURRENCY)
+                .build();
     }
 
     private static Order createOrderWithStatus(UUID customerId, OrderStatus status) {
-        return new Order(createCustomer(customerId), DEFAULT_CURRENCY, DEFAULT_TOTAL_AMOUNT, status);
+        return Order.builder()
+                .customer(createCustomer(customerId))
+                .currency(DEFAULT_CURRENCY).status(status)
+                .build();
     }
 
-    private static OrderItem createOrderItem(UUID orderId, OrderStatus orderStatus) {
-        return new OrderItem(
-                createOrderWithStatus(orderId, orderStatus),
-                DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFAULT_UNIT_PRICE, DEFAULT_QUANTITY);
+    private static OrderItem createOrderItem() {
+        return OrderItem.builder()
+                .sku(DEFAULT_SKU)
+                .description(DEFAULT_DESCRIPTION)
+                .unitPrice(DEFAULT_UNIT_PRICE)
+                .quantity(DEFAULT_QUANTITY)
+                .build();
+
     }
 
     private static CreateOrderItemRequest createOrderItemRequest() {
-        return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFAULT_UNIT_PRICE, DEFAULT_QUANTITY);
+        return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFAULT_UNIT_PRICE,
+                DEFAULT_QUANTITY);
     }
 
     @SuppressWarnings("unused")

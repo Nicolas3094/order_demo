@@ -56,7 +56,9 @@ public class OrderItemServiceTest {
 
     @Test
     public void getOrderItem_WhenOrderItemFound_ShouldGetOrderItem() {
-        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
 
         OrderItem result = orderItemService.getOrderItem(orderId, orderItemId);
@@ -79,7 +81,7 @@ public class OrderItemServiceTest {
         CreateOrderItemRequest request = createOrderItemRequest();
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
-        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderItem result = orderItemService.createOrderItem(orderId, request);
 
@@ -88,7 +90,7 @@ public class OrderItemServiceTest {
         assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
         assertEquals(DEFUALT_UNIT_PRICE, result.getUnitPrice());
         assertEquals(DEFUALT_QUANTITY, result.getQuantity());
-        verify(orderItemRepository).save(result);
+        verify(orderRepository).save(order);
     }
 
     @Test
@@ -105,13 +107,16 @@ public class OrderItemServiceTest {
 
     @Test
     public void deleteOrderItem_WhenOrderItemFound_ShouldDeleteOrderItem() {
-        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
 
         orderItemService.deleteOrderItem(orderId, orderItemId);
 
-        verify(orderItemRepository).delete(orderItem);
         verify(orderItemRepository).findById(orderItemId);
+        verify(orderRepository).save(order);
+        assertEquals(0, order.getItems().size());
     }
 
     @Test
@@ -127,7 +132,9 @@ public class OrderItemServiceTest {
     @Test
     public void deleteOrderItem_WhenOrderIdNotEqual_ShouldThrowOrderItemNotFoundException() {
         UUID differentOrderId = UUID.randomUUID();
-        OrderItem orderItem = createOrderItemWithOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
 
         OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
@@ -140,7 +147,9 @@ public class OrderItemServiceTest {
     @Test
     public void changeUnitPrice_WhenOrderItemFound_ShouldChangeUnitPrice() {
         BigDecimal newUnitPrice = new BigDecimal("8.00");
-        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
         when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
 
@@ -169,7 +178,9 @@ public class OrderItemServiceTest {
     public void changeUnitPrice_WhenOrderIdNotEqual_ShouldThrowOrderItemNotFoundException() {
         BigDecimal newUnitPrice = new BigDecimal("8.00");
         UUID differentOrderId = UUID.randomUUID();
-        OrderItem orderItem = createOrderItemWithOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
 
         OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
@@ -182,7 +193,9 @@ public class OrderItemServiceTest {
     @Test
     public void changeQuantity_WhenOrderItemFound_ShouldChangeQuantity() {
         Long newQuantity = 22L;
-        OrderItem orderItem = createOrderItemWithOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
         when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
 
@@ -211,7 +224,9 @@ public class OrderItemServiceTest {
     public void changeQuantity_WhenOrderIdNotEqual_ShouldThrowOrderItemNotFoundException() {
         Long newQuantity = 22L;
         UUID differentOrderId = UUID.randomUUID();
-        OrderItem orderItem = createOrderItemWithOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        Order order = createOrder(differentOrderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
 
         OrderItemNotFoundException result = assertThrows(OrderItemNotFoundException.class,
@@ -225,14 +240,23 @@ public class OrderItemServiceTest {
         return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFUALT_UNIT_PRICE, DEFUALT_QUANTITY);
     }
 
-    private static OrderItem createOrderItemWithOrder(UUID orderId, OrderStatus orderStatus) {
-        return new OrderItem(
-                createOrder(orderId, orderStatus),
-                DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFUALT_UNIT_PRICE, DEFUALT_QUANTITY);
+    private static OrderItem createOrderItem() {
+        return OrderItem.builder()
+                .sku(DEFAULT_SKU)
+                .description(DEFAULT_DESCRIPTION)
+                .unitPrice(DEFUALT_UNIT_PRICE)
+                .quantity(DEFUALT_QUANTITY)
+                .build();
+
     }
 
     private static Order createOrder(UUID orderId, OrderStatus orderStatus) {
-        return new Order(orderId, new Customer("email", "name"), "MXN", new BigDecimal("123.00"), orderStatus);
+        return Order.builder()
+                .id(orderId)
+                .customer(new Customer("email", "name"))
+                .currency("MXN")
+                .status(orderStatus)
+                .build();
     }
 
 }

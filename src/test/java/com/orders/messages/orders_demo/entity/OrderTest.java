@@ -1,10 +1,9 @@
 package com.orders.messages.orders_demo.entity;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,7 +19,12 @@ public class OrderTest {
 
     @BeforeEach
     public void setup() {
-        fakeOrder = new Order(new Customer("user_email", "user_name"), "mxn", new BigDecimal(12341.2131));
+        fakeOrder = Order.builder()
+                .customer(new Customer("user_email", "user_name"))
+                .currency("MXN")
+                .build();
+        // fakeOrder = new Order(new Customer("user_email", "user_name"), "mxn", new
+        // BigDecimal(12341.2131));
     }
 
     @Test
@@ -164,6 +168,106 @@ public class OrderTest {
         Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.expire());
 
         assertEquals("Paid orders cannot be modified.", result.getMessage());
+    }
+
+    @Test
+    public void addItem_WhenItemIsAdded_ShouldAttachOrderAndRecalculateAmountTotal() {
+        OrderItem item = OrderItem.builder()
+                .sku("SKU")
+                .description("Item")
+                .unitPrice(new BigDecimal("100.00"))
+                .quantity(2L)
+                .build();
+
+        fakeOrder.addItem(item);
+
+        assertEquals(1, fakeOrder.getItems().size());
+        assertEquals(fakeOrder, item.getOrder());
+        assertEquals(new BigDecimal("200.00"), fakeOrder.getAmountTotal());
+    }
+
+    @Test
+    public void removeItem_WhenItemExists_ShouldDetachOrderAndRecalculateAmountTotal() {
+        OrderItem item = OrderItem.builder()
+                .sku("SKU")
+                .description("Item")
+                .unitPrice(new BigDecimal("100.00"))
+                .quantity(2L)
+                .build();
+
+        fakeOrder.addItem(item);
+
+        fakeOrder.removeItem(item);
+
+        assertEquals(0, fakeOrder.getItems().size());
+        assertEquals(BigDecimal.ZERO, fakeOrder.getAmountTotal());
+    }
+
+    @Test
+    public void addItem_WhenMultipleItemsAreAdded_ShouldRecalculateAmountTotal() {
+        OrderItem item1 = OrderItem.builder()
+                .unitPrice(new BigDecimal("100.00"))
+                .quantity(2L)
+                .build();
+        OrderItem item2 = OrderItem.builder()
+                .unitPrice(new BigDecimal("50.00"))
+                .quantity(4L)
+                .build();
+
+        fakeOrder.addItem(item1);
+        fakeOrder.addItem(item2);
+
+        assertEquals(new BigDecimal("400.00"), fakeOrder.getAmountTotal());
+    }
+
+    @Test
+    public void removeItem_WhenOneItemIsRemoved_ShouldRecalculateAmountTotal() {
+        OrderItem item1 = OrderItem.builder()
+                .unitPrice(new BigDecimal("100.00"))
+                .quantity(2L)
+                .build();
+        OrderItem item2 = OrderItem.builder()
+                .unitPrice(new BigDecimal("50.00"))
+                .quantity(4L)
+                .build();
+
+        fakeOrder.addItem(item1);
+        fakeOrder.addItem(item2);
+
+        fakeOrder.removeItem(item1);
+
+        assertEquals(new BigDecimal("200.00"), fakeOrder.getAmountTotal());
+    }
+
+    @Test
+    public void getItems_ShouldReturnUnmodifiableList() {
+        assertThrows(UnsupportedOperationException.class,
+                () -> fakeOrder.getItems().add(
+                        OrderItem.builder().build()));
+    }
+
+    @Test
+    public void builder_WhenCustomerIsNull_ShouldThrowIllegalStateException() {
+
+        IllegalStateException result = assertThrows(
+                IllegalStateException.class,
+                () -> Order.builder()
+                        .currency("MXN")
+                        .build());
+
+        assertEquals("Customer is required.", result.getMessage());
+    }
+
+    @Test
+    public void builder_WhenCurrencyIsNull_ShouldThrowIllegalStateException() {
+
+        IllegalStateException result = assertThrows(
+                IllegalStateException.class,
+                () -> Order.builder()
+                        .customer(new Customer("email", "name"))
+                        .build());
+
+        assertEquals("Currency is required.", result.getMessage());
     }
 
 }
