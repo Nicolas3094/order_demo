@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.orders.messages.orders_demo.dtos.response.ErrorResponse;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerStateException;
+import com.orders.messages.orders_demo.exceptions.order_item.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
@@ -105,6 +106,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidPaymentStateException.class)
     public ResponseEntity<ErrorResponse> handleInvalidInvalidPaymentState(
             InvalidPaymentStateException e, HttpServletRequest request) {
+        return handleInvalid(e, request);
+    }
+
+    @ExceptionHandler(InvalidOrderItemStateException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidOrderItemStateException(
+            InvalidOrderItemStateException e, HttpServletRequest request) {
         return handleInvalid(e, request);
     }
 
