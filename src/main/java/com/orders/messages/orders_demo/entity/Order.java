@@ -125,13 +125,17 @@ public class Order {
 
     public void addItem(OrderItem orderItem) {
         items.add(Objects.requireNonNull(orderItem));
+
         orderItem.attachOrder(this);
+
         recalculateAmountTotal();
     }
 
     public void removeItem(OrderItem orderItem) {
         items.remove(Objects.requireNonNull(orderItem));
+
         orderItem.detachOrder();
+
         recalculateAmountTotal();
     }
 
@@ -225,17 +229,17 @@ public class Order {
         }
 
         public Builder items(List<OrderItem> items) {
-            this.items = new ArrayList<>(Objects.requireNonNull(items));
+            this.items = new ArrayList<>(Objects.requireNonNull(items, "Item must not be null."));
             return this;
         }
 
         public Builder addItem(OrderItem item) {
-            this.items.add(Objects.requireNonNull(item));
+            this.items.add(Objects.requireNonNull(item, "Item must not be null."));
             return this;
         }
 
         public Builder status(OrderStatus status) {
-            this.status = Objects.requireNonNull(status);
+            this.status = Objects.requireNonNull(status, "Status must not be null.");
             return this;
         }
 
