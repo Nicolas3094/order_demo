@@ -20,6 +20,8 @@ import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateExcept
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
 import com.orders.messages.orders_demo.exceptions.payment.InvalidPaymentStateException;
 import com.orders.messages.orders_demo.exceptions.payment.PaymentNotFoundException;
+import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
+import com.orders.messages.orders_demo.exceptions.product.ProductNotFoundException;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -103,6 +105,12 @@ public class GlobalExceptionHandler {
         return handleNotFound(e, request);
     }
 
+    @ExceptionHandler(ProductNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleProductNotFoundException(
+            ProductNotFoundException e, HttpServletRequest request) {
+        return handleNotFound(e, request);
+    }
+
     @ExceptionHandler(InvalidPaymentStateException.class)
     public ResponseEntity<ErrorResponse> handleInvalidInvalidPaymentState(
             InvalidPaymentStateException e, HttpServletRequest request) {
@@ -112,6 +120,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidOrderItemStateException.class)
     public ResponseEntity<ErrorResponse> handleInvalidOrderItemStateException(
             InvalidOrderItemStateException e, HttpServletRequest request) {
+        return handleInvalid(e, request);
+    }
+
+    @ExceptionHandler(InvalidProductException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidProductException(
+            InvalidProductException e, HttpServletRequest request) {
         return handleInvalid(e, request);
     }
 
