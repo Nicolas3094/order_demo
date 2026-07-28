@@ -14,7 +14,7 @@ public record CreateProductRequest(
         @NotBlank(message = "Name must not be blank.") String name,
         @NotBlank(message = "Description must not be blank.") String description,
         @Positive(message = "Price must be positive.") BigDecimal price,
-        @NotNull(message = "Currency must not be null.") Currency currency,
+        @NotNull(message = "Currency is required.") Currency currency,
         boolean active,
         @PositiveOrZero(message = "Quantity must be zero or positive.") long quantity) {
 

@@ -194,7 +194,6 @@ public class OrderTest {
                 .unitPrice(new BigDecimal("100.00"))
                 .quantity(2L)
                 .build();
-
         fakeOrder.addItem(item);
 
         fakeOrder.removeItem(item);
@@ -216,7 +215,6 @@ public class OrderTest {
 
         fakeOrder.addItem(item1);
         fakeOrder.addItem(item2);
-
         assertEquals(new BigDecimal("400.00"), fakeOrder.getAmountTotal());
     }
 
@@ -230,7 +228,6 @@ public class OrderTest {
                 .unitPrice(new BigDecimal("50.00"))
                 .quantity(4L)
                 .build();
-
         fakeOrder.addItem(item1);
         fakeOrder.addItem(item2);
 

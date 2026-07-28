@@ -84,9 +84,7 @@ public class ProductService {
 
     @Transactional
     public void deleteProduct(UUID productId) {
-        Product product = findProduct(productId);
-
-        productRepository.delete(product);
+        productRepository.delete(findProduct(productId));
     }
 
     private void validateUniqueSku(String sku) {
