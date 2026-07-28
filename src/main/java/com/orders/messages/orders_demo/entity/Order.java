@@ -11,6 +11,7 @@ import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
@@ -45,8 +46,9 @@ public class Order {
     @JoinColumn(name = "customer_id", nullable = false, foreignKey = @ForeignKey(name = "fk_order_customer"))
     private Customer customer;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String currency;
+    private Currency currency;
 
     @Column(nullable = false)
     private BigDecimal amountTotal;
@@ -91,7 +93,7 @@ public class Order {
         return customer;
     }
 
-    public String getCurrency() {
+    public Currency getCurrency() {
         return currency;
     }
 
@@ -191,17 +193,13 @@ public class Order {
     public static final class Builder {
         private UUID id;
         private Customer customer;
-        private String currency;
+        private Currency currency = Currency.MXN;
         private List<OrderItem> items = new ArrayList<>();
         private OrderStatus status = OrderStatus.PENDING_PAYMENT;
 
         public Order build() {
             if (customer == null) {
                 throw new IllegalStateException("Customer is required.");
-            }
-
-            if (currency == null || currency.isBlank()) {
-                throw new IllegalStateException("Currency is required.");
             }
 
             Order order = new Order(this);
@@ -223,8 +221,8 @@ public class Order {
             return this;
         }
 
-        public Builder currency(String currency) {
-            this.currency = currency;
+        public Builder currency(Currency currency) {
+            this.currency = Objects.requireNonNull(currency, "Currency is required.");
             return this;
         }
 

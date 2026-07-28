@@ -21,6 +21,7 @@ import com.orders.messages.orders_demo.dtos.request.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
 import com.orders.messages.orders_demo.entity.OrderItem;
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
@@ -254,7 +255,7 @@ public class OrderItemServiceTest {
         return Order.builder()
                 .id(orderId)
                 .customer(new Customer("email", "name"))
-                .currency("MXN")
+                .currency(Currency.MXN)
                 .status(orderStatus)
                 .build();
     }

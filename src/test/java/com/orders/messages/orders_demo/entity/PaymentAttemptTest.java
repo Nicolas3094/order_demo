@@ -10,6 +10,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.PaymentProvider;
 import com.orders.messages.orders_demo.enums.PaymentStatus;
 import com.orders.messages.orders_demo.exceptions.payment.InvalidPaymentStateException;
@@ -20,10 +21,8 @@ public class PaymentAttemptTest {
     private static final Customer DEFAULT_CUSTOMER = new Customer("email", "name");
     private static final Order DEFAULT_ORDER = Order.builder()
             .customer(DEFAULT_CUSTOMER)
-            .currency("MXN")
+            .currency(Currency.MXN)
             .build();
-
-    // new Order(DEFAULT_CUSTOMER, "MXN", new BigDecimal("123.00"));
 
     @Test
     public void paymentAttemptConstructor_ShouldSetStatusAsCreated() {

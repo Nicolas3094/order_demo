@@ -39,6 +39,7 @@ import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
 import com.orders.messages.orders_demo.entity.OrderItem;
 import com.orders.messages.orders_demo.entity.PaymentAttempt;
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.enums.PaymentProvider;
@@ -75,7 +76,6 @@ public class OrderControllerTest {
     private UUID orderItemId;
     private UUID paymentId;
 
-    private static final String DEFAULT_CURRENCY = "MXN";
     private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
     private static final String DEFAULT_PROVIDER_REF = "provider_ref";
     private static final String DEFAULT_SKU = "sku";
@@ -100,7 +100,7 @@ public class OrderControllerTest {
         mvc.perform(get("/api/v1/orders/{id}", orderId)).andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.customerId").value(customerId.toString()))
-                .andExpect(jsonPath("$.currency").value(DEFAULT_CURRENCY))
+                .andExpect(jsonPath("$.currency").value("MXN"))
                 .andExpect(jsonPath("$.amountTotal").value(123.00))
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
         verify(orderService).getOrder(orderId);
@@ -133,7 +133,7 @@ public class OrderControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.customerId").value(customerId.toString()))
-                .andExpect(jsonPath("$.currency").value(DEFAULT_CURRENCY))
+                .andExpect(jsonPath("$.currency").value("MXN"))
                 .andExpect(jsonPath("$.amountTotal").value(123.00))
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
         verify(orderService).createOrder(request);
@@ -158,7 +158,8 @@ public class OrderControllerTest {
     @Test
     public void createOrder_WhenValidationFailsWithNullCustomerId_ShouldReturn400() throws Exception {
         CreateOrderRequest request = CreateOrderRequest.builder()
-                .setCurrency(DEFAULT_CURRENCY)
+                .setCustomerId(null)
+                .setCurrency(Currency.MXN)
                 .build();
 
         mvc.perform(post("/api/v1/orders")
@@ -175,10 +176,9 @@ public class OrderControllerTest {
 
     @Test
     public void createOrder_WhenValidationFailsWithBlankCurrency_ShouldReturn400() throws Exception {
-        String currency = "";
         CreateOrderRequest request = CreateOrderRequest.builder()
                 .setCustomerId(customerId)
-                .setCurrency(currency)
+                .setCurrency(null)
                 .build();
 
         mvc.perform(post("/api/v1/orders")
@@ -203,7 +203,7 @@ public class OrderControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.customerId").value(customerId.toString()))
-                .andExpect(jsonPath("$.currency").value(DEFAULT_CURRENCY))
+                .andExpect(jsonPath("$.currency").value("MXN"))
                 .andExpect(jsonPath("$.amountTotal").value(123.00))
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
         verify(orderService).cancelOrder(orderId);
@@ -247,7 +247,7 @@ public class OrderControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.customerId").value(customerId.toString()))
-                .andExpect(jsonPath("$.currency").value(DEFAULT_CURRENCY))
+                .andExpect(jsonPath("$.currency").value("MXN"))
                 .andExpect(jsonPath("$.amountTotal").value(123.00))
                 .andExpect(jsonPath("$.status").value("REFUNDED"));
         verify(orderService).refundOrder(orderId);
@@ -291,7 +291,7 @@ public class OrderControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.customerId").value(customerId.toString()))
-                .andExpect(jsonPath("$.currency").value(DEFAULT_CURRENCY))
+                .andExpect(jsonPath("$.currency").value("MXN"))
                 .andExpect(jsonPath("$.amountTotal").value(123.00))
                 .andExpect(jsonPath("$.status").value("EXPIRED"));
         verify(orderService).expireOrder(orderId);
@@ -880,7 +880,7 @@ public class OrderControllerTest {
     private static CreateOrderRequest createValidRequest(UUID customerId) {
         return CreateOrderRequest.builder()
                 .setCustomerId(customerId)
-                .setCurrency(DEFAULT_CURRENCY)
+                .setCurrency(Currency.MXN)
                 .build();
     }
 
@@ -899,14 +899,14 @@ public class OrderControllerTest {
     private static Order createPendingOrder(UUID customerId) {
         return Order.builder()
                 .customer(createCustomer(customerId))
-                .currency(DEFAULT_CURRENCY)
+                .currency(Currency.MXN)
                 .build();
     }
 
     private static Order createOrderWithStatus(UUID customerId, OrderStatus status) {
         return Order.builder()
                 .customer(createCustomer(customerId))
-                .currency(DEFAULT_CURRENCY).status(status)
+                .currency(Currency.MXN).status(status)
                 .build();
     }
 

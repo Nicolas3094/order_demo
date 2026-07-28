@@ -2,7 +2,8 @@ package com.orders.messages.orders_demo.dtos.request;
 
 import java.util.UUID;
 
-import jakarta.validation.constraints.NotBlank;
+import com.orders.messages.orders_demo.enums.Currency;
+
 import jakarta.validation.constraints.NotNull;
 
 /**
@@ -13,7 +14,7 @@ import jakarta.validation.constraints.NotNull;
  */
 public record CreateOrderRequest(
         @NotNull(message = "Customer id is required.") UUID customerId,
-        @NotBlank(message = "Currency is required.") String currency) {
+        @NotNull(message = "Currency is required.") Currency currency) {
 
     public static Builder builder() {
         return new Builder();
@@ -21,7 +22,7 @@ public record CreateOrderRequest(
 
     public static final class Builder {
         private UUID customerId;
-        private String currency;
+        private Currency currency;
 
         public CreateOrderRequest build() {
             return new CreateOrderRequest(customerId, currency);
@@ -32,7 +33,7 @@ public record CreateOrderRequest(
             return this;
         }
 
-        public Builder setCurrency(String currency) {
+        public Builder setCurrency(Currency currency) {
             this.currency = currency;
             return this;
         }

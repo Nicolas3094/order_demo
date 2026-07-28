@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 
 /**
@@ -22,7 +23,7 @@ import com.orders.messages.orders_demo.enums.OrderStatus;
 public record OrderResponse(
         UUID id,
         UUID customerId,
-        String currency,
+        Currency currency,
         BigDecimal amountTotal,
         OrderStatus status,
         Long version,
@@ -37,7 +38,7 @@ public record OrderResponse(
     public static class Builder {
         private UUID id;
         private UUID customerId;
-        private String currency;
+        private Currency currency;
         private BigDecimal amountTotal;
         private OrderStatus status;
         private Long version;
@@ -60,7 +61,7 @@ public record OrderResponse(
             return this;
         }
 
-        public Builder setCurrency(String currency) {
+        public Builder setCurrency(Currency currency) {
             this.currency = currency;
             return this;
         }

@@ -9,6 +9,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
 
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.order_item.InvalidOrderItemStateException;
 
@@ -146,7 +147,11 @@ public class OrderItemTest {
     }
 
     private static Order createOrderWithStatus(OrderStatus orderStatus) {
-        return Order.builder().customer(new Customer("email", "name")).currency("MXN").status(orderStatus).build();
+        return Order.builder()
+                .customer(new Customer("email", "name"))
+                .currency(Currency.MXN)
+                .status(orderStatus)
+                .build();
     }
 
     private static OrderItem createOrderItemWithOrderStatus() {

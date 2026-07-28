@@ -459,16 +459,20 @@ public class PaymentAttemptServiceTest {
     }
 
     private static Order createOrderWithStatusAndId(UUID orderId, OrderStatus status) {
-        return Order.builder().id(orderId).customer(new Customer("email", "name")).currency("MXN").status(status)
+        return Order.builder()
+                .id(orderId)
+                .customer(new Customer("email", "name"))
+                .status(status)
                 .build();
-        // return new Order(orderId, new Customer("email", "name"), "mxn", new
-        // BigDecimal("12341.21"), status);
+
     }
 
     private static Order createOrderWithId(UUID id) {
-        return Order.builder().id(id).customer(new Customer("email", "name")).currency("MXN").build();
-        // return new Order(id, new Customer("email", "name"), "mxn", new
-        // BigDecimal("12341.21"));
+        return Order.builder()
+                .id(id)
+                .customer(new Customer("email", "name"))
+                .build();
+
     }
 
     @SuppressWarnings("unused")

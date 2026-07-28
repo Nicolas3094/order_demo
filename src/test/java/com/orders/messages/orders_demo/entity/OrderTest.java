@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
@@ -22,7 +23,7 @@ public class OrderTest {
     public void setup() {
         fakeOrder = Order.builder()
                 .customer(new Customer("user_email", "user_name"))
-                .currency("MXN")
+                .currency(Currency.MXN)
                 .build();
     }
 
@@ -254,7 +255,7 @@ public class OrderTest {
         IllegalStateException result = assertThrows(
                 IllegalStateException.class,
                 () -> Order.builder()
-                        .currency("MXN")
+                        .currency(Currency.MXN)
                         .build());
 
         assertEquals("Customer is required.", result.getMessage());
@@ -263,10 +264,11 @@ public class OrderTest {
     @Test
     public void builder_WhenCurrencyIsNull_ShouldThrowIllegalStateException() {
 
-        IllegalStateException result = assertThrows(
-                IllegalStateException.class,
+        NullPointerException result = assertThrows(
+                NullPointerException.class,
                 () -> Order.builder()
                         .customer(new Customer("email", "name"))
+                        .currency(null)
                         .build());
 
         assertEquals("Currency is required.", result.getMessage());

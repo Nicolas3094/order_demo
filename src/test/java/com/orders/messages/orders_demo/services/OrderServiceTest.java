@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.orders.messages.orders_demo.dtos.request.CreateOrderRequest;
 import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
+import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.CustomerStatus;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.customer.CustomerNotFoundException;
@@ -43,7 +44,7 @@ public class OrderServiceTest {
 
     @BeforeEach
     public void setup() {
-        fakeOrder = Order.builder().customer(new Customer("email", "name")).currency("MXN").build();
+        fakeOrder = Order.builder().customer(new Customer("email", "name")).build();
         orderId = fakeOrder.getId();
     }
 
@@ -70,7 +71,7 @@ public class OrderServiceTest {
         Customer customer = new Customer(customerId, "email", "name", CustomerStatus.ACTIVE);
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
                 .setCustomerId(customerId)
-                .setCurrency("currency")
+                .setCurrency(Currency.MXN)
                 .build();
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -88,7 +89,6 @@ public class OrderServiceTest {
         UUID customerId = UUID.randomUUID();
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
                 .setCustomerId(customerId)
-                .setCurrency("currency")
                 .build();
 
         Exception result = assertThrows(CustomerNotFoundException.class, () -> orderService.createOrder(orderRequest));
