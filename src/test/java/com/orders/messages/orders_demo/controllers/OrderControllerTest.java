@@ -420,8 +420,7 @@ public class OrderControllerTest {
 
     @Test
     public void createOrderItem_WhenValidationFailsWithBlankSku_ShouldReturn400() throws Exception {
-        CreateOrderItemRequest request = new CreateOrderItemRequest(
-                "", DEFAULT_DESCRIPTION, DEFAULT_UNIT_PRICE, DEFAULT_QUANTITY);
+        CreateOrderItemRequest request = new CreateOrderItemRequest("", DEFAULT_QUANTITY);
 
         mvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -436,44 +435,8 @@ public class OrderControllerTest {
     }
 
     @Test
-    public void createOrderItem_WhenValidationFailsWithBlankDescription_ShouldReturn400() throws Exception {
-        CreateOrderItemRequest request = new CreateOrderItemRequest(
-                DEFAULT_SKU, "", DEFAULT_UNIT_PRICE, DEFAULT_QUANTITY);
-
-        mvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value("Order item must have description."))
-                .andExpect(jsonPath("$.path")
-                        .value("/api/v1/orders/" + orderId + "/items"));
-        verify(orderItemService, never()).createOrderItem(any(UUID.class), any(CreateOrderItemRequest.class));
-    }
-
-    @Test
-    public void createOrderItem_WhenValidationFailsWithNegativeUnitPrice_ShouldReturn400() throws Exception {
-        CreateOrderItemRequest request = new CreateOrderItemRequest(
-                DEFAULT_SKU, DEFAULT_DESCRIPTION, new BigDecimal("-12.00"), DEFAULT_QUANTITY);
-
-        mvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.message").value("Order item unit price must be positive."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items"));
-        verify(orderItemService, never()).createOrderItem(any(UUID.class), any(CreateOrderItemRequest.class));
-    }
-
-    @Test
     public void createOrderItem_WhenValidationFailsWithNegativeQuantity_ShouldReturn400() throws Exception {
-        CreateOrderItemRequest request = new CreateOrderItemRequest(
-                DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFAULT_UNIT_PRICE, -5L);
+        CreateOrderItemRequest request = new CreateOrderItemRequest(DEFAULT_SKU, -5L);
 
         mvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -921,7 +884,8 @@ public class OrderControllerTest {
     }
 
     private static CreateOrderItemRequest createOrderItemRequest() {
-        return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFAULT_UNIT_PRICE,
+        return new CreateOrderItemRequest(
+                DEFAULT_SKU,
                 DEFAULT_QUANTITY);
     }
 

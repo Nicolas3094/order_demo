@@ -8,12 +8,16 @@ import org.springframework.stereotype.Service;
 import com.orders.messages.orders_demo.dtos.request.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.entity.Order;
 import com.orders.messages.orders_demo.entity.OrderItem;
+import com.orders.messages.orders_demo.entity.Product;
 import com.orders.messages.orders_demo.exceptions.order_item.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
+import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
+import com.orders.messages.orders_demo.exceptions.product.ProductNotFoundException;
 import com.orders.messages.orders_demo.mappers.OrderItemMapper;
 import com.orders.messages.orders_demo.repositories.OrderItemRepository;
 import com.orders.messages.orders_demo.repositories.OrderRepository;
+import com.orders.messages.orders_demo.repositories.ProductRepository;
 
 import jakarta.transaction.Transactional;
 
@@ -22,10 +26,13 @@ public class OrderItemService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final ProductRepository productRepository;
 
-    public OrderItemService(OrderItemRepository orderItemRepository, OrderRepository orderRepository) {
+    public OrderItemService(OrderItemRepository orderItemRepository, OrderRepository orderRepository,
+            ProductRepository productRepository) {
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
+        this.productRepository = productRepository;
     }
 
     public OrderItem getOrderItem(UUID orderId, UUID orderItemId) {
@@ -38,7 +45,13 @@ public class OrderItemService {
 
         validatePendingOrder(order);
 
-        OrderItem item = OrderItemMapper.toEntity(request);
+        Product product = findProduct(request.sku());
+
+        validateProductIsActive(product);
+
+        // TODO: Validate if product has stock.
+
+        OrderItem item = OrderItemMapper.toEntity(request.quantity(), product);
 
         order.addItem(item);
 
@@ -86,6 +99,31 @@ public class OrderItemService {
     private void validatePendingOrder(Order order) {
         if (!order.canAcceptPayments()) {
             throw new InvalidOrderItemStateException("Only pending orders can modify items.");
+        }
+    }
+
+    /**
+     * Finds the product if it exists, otherwise throws a
+     * {@link ProductNotFoundException}.
+     *
+     * @param sku The product SKU.
+     * 
+     * @return A complete Product object.
+     */
+    private Product findProduct(String sku) {
+        return productRepository.findBySku(sku)
+                .orElseThrow(() -> new ProductNotFoundException(sku));
+    }
+
+    /**
+     * Validates if a product is active.
+     *
+     * @param product The product to validate.
+     */
+    private void validateProductIsActive(Product product) {
+        if (!product.getActive()) {
+            throw new InvalidProductException(
+                    "Product with SKU " + product.getSku() + " is not active.");
         }
     }
 

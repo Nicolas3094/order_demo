@@ -6,4 +6,8 @@ public class ProductNotFoundException extends InvalidProductException {
         super("Product could not be found.");
     }
 
+    public ProductNotFoundException(String sku) {
+        super("Product with SKU " + sku + " could not be found.");
+    }
+
 }

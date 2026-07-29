@@ -21,12 +21,16 @@ import com.orders.messages.orders_demo.dtos.request.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.entity.Customer;
 import com.orders.messages.orders_demo.entity.Order;
 import com.orders.messages.orders_demo.entity.OrderItem;
+import com.orders.messages.orders_demo.entity.Product;
 import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
+import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
+import com.orders.messages.orders_demo.exceptions.product.ProductNotFoundException;
 import com.orders.messages.orders_demo.repositories.OrderItemRepository;
 import com.orders.messages.orders_demo.repositories.OrderRepository;
+import com.orders.messages.orders_demo.repositories.ProductRepository;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderItemServiceTest {
@@ -35,13 +39,15 @@ public class OrderItemServiceTest {
     private static final String ORDER_ITEM_ERROR_MESSAGE = "Order item not found.";
     private static final String DEFAULT_SKU = "sku";
     private static final String DEFAULT_DESCRIPTION = "description";
-    private static final BigDecimal DEFUALT_UNIT_PRICE = new BigDecimal("12.00");
-    private static final Long DEFUALT_QUANTITY = 10L;
+    private static final BigDecimal DEFAULT_UNIT_PRICE = new BigDecimal("12.00");
+    private static final Long DEFAULT_QUANTITY_LONG = 10L;
 
     @Mock
     private OrderRepository orderRepository;
     @Mock
     private OrderItemRepository orderItemRepository;
+    @Mock
+    private ProductRepository productRepository;
 
     @InjectMocks
     private OrderItemService orderItemService;
@@ -78,19 +84,22 @@ public class OrderItemServiceTest {
     }
 
     @Test
-    public void createOrderItem_WhenOrderFound_ShouldCreateOrderItem() {
+    public void createOrderItem_WhenOrderAndProductFound_ShouldCreateOrderItem() {
         CreateOrderItemRequest request = createOrderItemRequest();
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Product product = createProduct(true);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderItem result = orderItemService.createOrderItem(orderId, request);
 
         assertEquals(order, result.getOrder());
+        assertEquals(1, order.getItems().size());
         assertEquals(DEFAULT_SKU, result.getSku());
         assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
-        assertEquals(DEFUALT_UNIT_PRICE, result.getUnitPrice());
-        assertEquals(DEFUALT_QUANTITY, result.getQuantity());
+        assertEquals(DEFAULT_UNIT_PRICE, result.getUnitPrice());
+        assertEquals(DEFAULT_QUANTITY_LONG, result.getQuantity());
         verify(orderRepository).save(order);
     }
 
@@ -103,7 +112,36 @@ public class OrderItemServiceTest {
                 () -> orderItemService.createOrderItem(orderId, request));
 
         assertEquals(ORDER_ERROR_MESSAGE, result.getMessage());
-        verify(orderItemRepository, never()).save(any(OrderItem.class));
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    public void createOrderItem_WhenProductNotFound_ShouldThrowProductNotFoundException() {
+        CreateOrderItemRequest request = createOrderItemRequest();
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.empty());
+
+        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
+                () -> orderItemService.createOrderItem(orderId, request));
+
+        assertEquals("Product with SKU sku could not be found.", result.getMessage());
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    @Test
+    public void createOrderItem_WhenProductIsNotActive_ShouldThrowInvalidProductException() {
+        CreateOrderItemRequest request = createOrderItemRequest();
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Product product = createProduct(false);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+
+        InvalidProductException result = assertThrows(InvalidProductException.class,
+                () -> orderItemService.createOrderItem(orderId, request));
+
+        assertEquals("Product with SKU sku is not active.", result.getMessage());
+        verify(orderRepository, never()).save(any(Order.class));
     }
 
     @Test
@@ -160,7 +198,7 @@ public class OrderItemServiceTest {
         assertEquals(DEFAULT_SKU, result.getSku());
         assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
         assertEquals(newUnitPrice, result.getUnitPrice());
-        assertEquals(DEFUALT_QUANTITY, result.getQuantity());
+        assertEquals(DEFAULT_QUANTITY_LONG, result.getQuantity());
         verify(orderItemRepository).findById(orderItemId);
         verify(orderItemRepository).save(result);
     }
@@ -205,7 +243,7 @@ public class OrderItemServiceTest {
         assertEquals(orderItem.getOrder(), result.getOrder());
         assertEquals(DEFAULT_SKU, result.getSku());
         assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
-        assertEquals(DEFUALT_UNIT_PRICE, result.getUnitPrice());
+        assertEquals(DEFAULT_UNIT_PRICE, result.getUnitPrice());
         assertEquals(newQuantity, result.getQuantity());
         verify(orderItemRepository).findById(orderItemId);
         verify(orderItemRepository).save(result);
@@ -238,15 +276,25 @@ public class OrderItemServiceTest {
     }
 
     private static CreateOrderItemRequest createOrderItemRequest() {
-        return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_DESCRIPTION, DEFUALT_UNIT_PRICE, DEFUALT_QUANTITY);
+        return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
+    }
+
+    private static Product createProduct(boolean isActive) {
+        return Product.builder()
+                .name("product_name")
+                .sku(DEFAULT_SKU)
+                .description(DEFAULT_DESCRIPTION)
+                .price(DEFAULT_UNIT_PRICE)
+                .active(isActive)
+                .build();
     }
 
     private static OrderItem createOrderItem() {
         return OrderItem.builder()
                 .sku(DEFAULT_SKU)
                 .description(DEFAULT_DESCRIPTION)
-                .unitPrice(DEFUALT_UNIT_PRICE)
-                .quantity(DEFUALT_QUANTITY)
+                .unitPrice(DEFAULT_UNIT_PRICE)
+                .quantity(DEFAULT_QUANTITY_LONG)
                 .build();
 
     }

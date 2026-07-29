@@ -1,8 +1,8 @@
 package com.orders.messages.orders_demo.mappers;
 
-import com.orders.messages.orders_demo.dtos.request.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.dtos.response.OrderItemResponse;
 import com.orders.messages.orders_demo.entity.OrderItem;
+import com.orders.messages.orders_demo.entity.Product;
 
 public final class OrderItemMapper {
 
@@ -16,12 +16,12 @@ public final class OrderItemMapper {
                 item.getLineTotal());
     }
 
-    public static OrderItem toEntity(CreateOrderItemRequest request) {
+    public static OrderItem toEntity(long quantity, Product product) {
         return OrderItem.builder()
-                .sku(request.sku())
-                .description(request.description())
-                .unitPrice(request.unitPrice())
-                .quantity(request.quantity())
+                .sku(product.getSku())
+                .description(product.getDescription())
+                .unitPrice(product.getPrice())
+                .quantity(quantity)
                 .build();
     }
 
