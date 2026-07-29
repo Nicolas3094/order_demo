@@ -53,7 +53,7 @@ public class ProductService {
     }
 
     @Transactional
-    public Product decreaseStock(UUID productId, Long quantity) {
+    public Product x(UUID productId, Long quantity) {
         return updateProduct(productId, product -> product.decreaseStock(quantity));
     }
 
@@ -87,12 +87,26 @@ public class ProductService {
         productRepository.delete(findProduct(productId));
     }
 
+    /**
+     * Validates that the SKU is unique. If a Product with the same SKU already
+     * exists, throws an
+     * 
+     * @param sku The SKU to validate.
+     */
     private void validateUniqueSku(String sku) {
         if (productRepository.existsBySku(sku)) {
             throw new InvalidProductException("Product must have unique SKU.");
         }
     }
 
+    /**
+     * Updates the Product with the given ID using the provided action. If the
+     * Product does not exist, throws a ProductNotFoundException.
+     * 
+     * @param id     The Product ID.
+     * @param action The action to perform on the Product.
+     * @return The updated Product.
+     */
     private Product updateProduct(UUID id, Consumer<Product> action) {
         Product product = findProduct(id);
 
@@ -105,8 +119,8 @@ public class ProductService {
      * Finds the Product if exits, otherwise throws an
      * {@link ProductNotFoundException}.
      * 
-     * @param productId The Order ID.
-     * @return A complete Order object.
+     * @param productId The Product ID.
+     * @return A complete Product object.
      */
     private Product findProduct(UUID productId) {
         return productRepository.findById(productId)
