@@ -176,6 +176,14 @@ public class Order {
         }
     }
 
+    public boolean validateCurrency(Product product) {
+        if (!this.currency.equals(product.getCurrency())) {
+            throw new InvalidOrderStateException("Product currency " + product.getCurrency()
+                    + " does not match order currency " + this.currency + ".");
+        }
+        return true;
+    }
+
     private void changeStatusFromPending(OrderStatus newStatus) {
         switch (status) {
             case CANCELLED -> throw new OrderAlreadyCancelledException();
@@ -184,10 +192,6 @@ public class Order {
             case PAID -> throw new OrderAlreadyPaidException();
             default -> throw new InvalidOrderStateException("Unknown order state");
         }
-    }
-
-    public static Builder builder() {
-        return new Builder();
     }
 
     public static final class Builder {
@@ -241,6 +245,10 @@ public class Order {
             return this;
         }
 
+    }
+
+    public static Builder builder() {
+        return new Builder();
     }
 
     @Override

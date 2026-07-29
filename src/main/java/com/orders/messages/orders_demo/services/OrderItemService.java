@@ -51,11 +51,7 @@ public class OrderItemService {
 
         product.hasEnoughStock(request.quantity());
 
-        if (!order.getCurrency().equals(product.getCurrency())) {
-            throw new InvalidProductException(
-                    "Product currency " + product.getCurrency() + " does not match order currency "
-                            + order.getCurrency() + ".");
-        }
+        order.validateCurrency(product);
 
         OrderItem item = OrderItemMapper.toEntity(request.quantity(), product);
 

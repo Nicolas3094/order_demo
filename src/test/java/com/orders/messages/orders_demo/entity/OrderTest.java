@@ -14,6 +14,7 @@ import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
+import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderTest {
@@ -269,6 +270,35 @@ public class OrderTest {
                         .build());
 
         assertEquals("Currency is required.", result.getMessage());
+    }
+
+    @Test
+    public void validateCurrency_WhenProductCurrencyMatchesOrderCurrency_ShouldReturnTrue() {
+        Product product = Product.builder()
+                .sku("SKU")
+                .name("Product")
+                .price(new BigDecimal("100.00"))
+                .currency(Currency.MXN)
+                .build();
+
+        boolean result = fakeOrder.validateCurrency(product);
+
+        assertEquals(true, result);
+    }
+
+    @Test
+    public void validateCurrency_WhenProductCurrencyDoesNotMatchOrderCurrency_ShouldThrowInvalidProductException() {
+        Product product = Product.builder()
+                .sku("SKU")
+                .name("Product")
+                .price(new BigDecimal("100.00"))
+                .currency(Currency.USD)
+                .build();
+
+        InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
+                () -> fakeOrder.validateCurrency(product));
+
+        assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
     }
 
 }
