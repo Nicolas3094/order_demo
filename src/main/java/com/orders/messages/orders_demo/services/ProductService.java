@@ -53,7 +53,7 @@ public class ProductService {
     }
 
     @Transactional
-    public Product x(UUID productId, Long quantity) {
+    public Product decreaseStock(UUID productId, Long quantity) {
         return updateProduct(productId, product -> product.decreaseStock(quantity));
     }
 
@@ -91,7 +91,7 @@ public class ProductService {
      * Validates that the SKU is unique. If a Product with the same SKU already
      * exists, throws an
      * 
-     * @param sku The SKU to validate.
+     * @param sku
      */
     private void validateUniqueSku(String sku) {
         if (productRepository.existsBySku(sku)) {
