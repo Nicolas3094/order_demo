@@ -14,7 +14,6 @@ import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderAlreadyCancelledException;
-import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderTest {

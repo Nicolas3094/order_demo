@@ -24,7 +24,9 @@ import com.orders.messages.orders_demo.entity.OrderItem;
 import com.orders.messages.orders_demo.entity.Product;
 import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
+import com.orders.messages.orders_demo.exceptions.order_item.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
+import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
 import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
 import com.orders.messages.orders_demo.exceptions.product.ProductNotFoundException;
@@ -187,7 +189,7 @@ public class OrderItemServiceTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
 
-        InvalidProductException result = assertThrows(InvalidProductException.class,
+        InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> orderItemService.createOrderItem(orderId, request));
 
         assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
@@ -349,6 +351,7 @@ public class OrderItemServiceTest {
 
     private static Product createProduct(boolean isActive) {
         return Product.builder()
+                .quantity(20L)
                 .name("product_name")
                 .sku(DEFAULT_SKU)
                 .description(DEFAULT_DESCRIPTION)
