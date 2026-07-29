@@ -10,6 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import com.orders.messages.orders_demo.enums.Currency;
+import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
 
 public class ProductTest {
     private Product product;
@@ -151,12 +152,12 @@ public class ProductTest {
     }
 
     @Test
-    public void hasEnoughStock_WhenQuantityIsGreaterThanStock_ShouldReturnFalse() {
+    public void hasEnoughStock_WhenQuantityIsGreaterThanStock_ShouldThrowInvalidProductException() {
         Product product = createProduct();
 
-        boolean result = product.hasEnoughStock(15);
+        InvalidProductException result = assertThrows(InvalidProductException.class, () -> product.hasEnoughStock(15));
 
-        assertFalse(result);
+        assertEquals("Product with SKU SKU-001 does not have enough stock.", result.getMessage());
     }
 
     private static Product createProduct() {

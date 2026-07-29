@@ -49,10 +49,7 @@ public class OrderItemService {
 
         validateProductIsActive(product);
 
-        if (!product.hasEnoughStock(request.quantity())) {
-            throw new InvalidProductException(
-                    "Product with SKU " + product.getSku() + " does not have enough stock.");
-        }
+        product.hasEnoughStock(request.quantity());
 
         if (!order.getCurrency().equals(product.getCurrency())) {
             throw new InvalidProductException(
