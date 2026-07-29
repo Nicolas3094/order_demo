@@ -61,6 +61,12 @@ public class OrderItemServiceTest {
         orderItemId = UUID.randomUUID();
     }
 
+    /*
+     * 
+     * getOrderItem
+     * 
+     */
+
     @Test
     public void getOrderItem_WhenOrderItemFound_ShouldGetOrderItem() {
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
@@ -82,6 +88,12 @@ public class OrderItemServiceTest {
 
         assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
     }
+
+    /*
+     * 
+     * createOrderItem
+     * 
+     */
 
     @Test
     public void createOrderItem_WhenOrderAndProductFound_ShouldCreateOrderItem() {
@@ -145,6 +157,27 @@ public class OrderItemServiceTest {
     }
 
     @Test
+    public void createOrderItem_WhenProductDoesNotHaveEnoughStock_ShouldThrowInvalidProductException() {
+        CreateOrderItemRequest request = createOrderItemRequest();
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Product product = createProduct(true);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+
+        InvalidProductException result = assertThrows(InvalidProductException.class,
+                () -> orderItemService.createOrderItem(orderId, request));
+
+        assertEquals("Product with SKU sku does not have enough stock.", result.getMessage());
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
+    /*
+     * 
+     * deleteOrderItem
+     * 
+     */
+
+    @Test
     public void deleteOrderItem_WhenOrderItemFound_ShouldDeleteOrderItem() {
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItem orderItem = createOrderItem();
@@ -182,6 +215,12 @@ public class OrderItemServiceTest {
         assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
         verify(orderItemRepository, never()).delete(any(OrderItem.class));
     }
+
+    /*
+     * 
+     * changeUnitPrice
+     * 
+     */
 
     @Test
     public void changeUnitPrice_WhenOrderItemFound_ShouldChangeUnitPrice() {
@@ -228,6 +267,12 @@ public class OrderItemServiceTest {
         assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
         verify(orderItemRepository, never()).save(any(OrderItem.class));
     }
+
+    /*
+     * 
+     * changeQuantity
+     * 
+     */
 
     @Test
     public void changeQuantity_WhenOrderItemFound_ShouldChangeQuantity() {

@@ -49,7 +49,10 @@ public class OrderItemService {
 
         validateProductIsActive(product);
 
-        // TODO: Validate if product has stock.
+        if (!product.hasEnoughStock(request.quantity())) {
+            throw new InvalidProductException(
+                    "Product with SKU " + product.getSku() + " does not have enough stock.");
+        }
 
         OrderItem item = OrderItemMapper.toEntity(request.quantity(), product);
 

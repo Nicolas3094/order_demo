@@ -147,6 +147,12 @@ public class Product {
         this.quantity -= quantity;
     }
 
+    public boolean hasEnoughStock(long quantity) {
+        validatePositiveQuantity(quantity);
+
+        return this.quantity >= quantity;
+    }
+
     public static final class Builder {
         private UUID id;
         private String sku;

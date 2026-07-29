@@ -1,11 +1,13 @@
 package com.orders.messages.orders_demo.entity;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import java.math.BigDecimal;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.orders.messages.orders_demo.enums.Currency;
 
@@ -136,6 +138,25 @@ public class ProductTest {
         assertEquals(product.getCurrency(), clone.getCurrency());
         assertEquals(product.getActive(), clone.getActive());
         assertEquals(product.getQuantity(), clone.getQuantity());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = { 5, 10 })
+    public void hasEnoughStock_WhenQuantityIsLessOrEqualThanStock_ShouldReturnTrue(int quantity) {
+        Product product = createProduct();
+
+        boolean result = product.hasEnoughStock(quantity);
+
+        assertTrue(result);
+    }
+
+    @Test
+    public void hasEnoughStock_WhenQuantityIsGreaterThanStock_ShouldReturnFalse() {
+        Product product = createProduct();
+
+        boolean result = product.hasEnoughStock(15);
+
+        assertFalse(result);
     }
 
     private static Product createProduct() {
