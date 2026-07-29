@@ -54,6 +54,12 @@ public class OrderItemService {
                     "Product with SKU " + product.getSku() + " does not have enough stock.");
         }
 
+        if (!order.getCurrency().equals(product.getCurrency())) {
+            throw new InvalidProductException(
+                    "Product currency " + product.getCurrency() + " does not match order currency "
+                            + order.getCurrency() + ".");
+        }
+
         OrderItem item = OrderItemMapper.toEntity(request.quantity(), product);
 
         order.addItem(item);

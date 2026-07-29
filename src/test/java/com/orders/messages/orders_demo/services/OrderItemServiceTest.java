@@ -171,6 +171,29 @@ public class OrderItemServiceTest {
         verify(orderRepository, never()).save(any(Order.class));
     }
 
+    @Test
+    public void createOrderItem_WhenProductCurrencyDoesNotMatchOrderCurrency_ShouldThrowInvalidProductException() {
+        CreateOrderItemRequest request = createOrderItemRequest();
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        Product product = Product.builder()
+                .quantity(100L)
+                .name("product_name")
+                .sku(DEFAULT_SKU)
+                .description(DEFAULT_DESCRIPTION)
+                .price(DEFAULT_UNIT_PRICE)
+                .active(true)
+                .currency(Currency.USD)
+                .build();
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+
+        InvalidProductException result = assertThrows(InvalidProductException.class,
+                () -> orderItemService.createOrderItem(orderId, request));
+
+        assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
+        verify(orderRepository, never()).save(any(Order.class));
+    }
+
     /*
      * 
      * deleteOrderItem
