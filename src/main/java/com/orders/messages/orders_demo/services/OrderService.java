@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.services;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -31,6 +32,10 @@ public class OrderService {
         this.orderRepository = repository;
         this.customerRepository = customerRepository;
         this.productRepository = productRepository;
+    }
+
+    public List<Order> getAllOrders() {
+        return orderRepository.findAll();
     }
 
     public Order getOrder(UUID id) {

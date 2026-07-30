@@ -1,11 +1,13 @@
 package com.orders.messages.orders_demo.services;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,6 +53,20 @@ public class OrderServiceTest {
     public void setup() {
         fakeOrder = Order.builder().customer(new Customer("email", "name")).build();
         orderId = fakeOrder.getId();
+    }
+
+    @Test
+    public void getAllOrders_ShouldReturnListOfOrders() {
+        Order order1 = createOrder(UUID.randomUUID(), OrderStatus.PENDING_PAYMENT);
+        Order order2 = createOrder(UUID.randomUUID(), OrderStatus.PAID);
+        when(orderRepository.findAll()).thenReturn(List.of(order1, order2));
+
+        List<Order> result = orderService.getAllOrders();
+
+        assertEquals(2, result.size());
+        assertEquals(order1, result.get(0));
+        assertEquals(order2, result.get(1));
+        verify(orderRepository).findAll();
     }
 
     /*
@@ -301,6 +317,15 @@ public class OrderServiceTest {
         Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.refundOrder(orderId));
 
         assertEquals("Order could not be found.", result.getMessage());
+    }
+
+    private Order createOrder(UUID id, OrderStatus status) {
+        Order order = Order.builder()
+                .id(id)
+                .customer(new Customer("email", "name"))
+                .status(status)
+                .build();
+        return order;
     }
 
     private OrderItem createOrderItem(Product product, Long quantity) {

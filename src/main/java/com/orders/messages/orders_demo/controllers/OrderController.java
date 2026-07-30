@@ -1,6 +1,8 @@
 package com.orders.messages.orders_demo.controllers;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,6 +49,15 @@ public class OrderController {
         this.orderService = orderService;
         this.paymentAttemptService = paymentAttemptService;
         this.orderItemService = orderItemService;
+    }
+
+    @GetMapping
+    public ResponseEntity<List<OrderResponse>> getAllOrders() {
+        return ResponseEntity.ok(
+                orderService.getAllOrders()
+                        .stream()
+                        .map(OrderMapper::toResponse)
+                        .collect(Collectors.toList()));
     }
 
     @GetMapping("/{id}")

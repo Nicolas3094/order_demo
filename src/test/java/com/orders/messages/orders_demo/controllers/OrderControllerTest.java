@@ -1,6 +1,7 @@
 package com.orders.messages.orders_demo.controllers;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -89,6 +90,27 @@ public class OrderControllerTest {
         orderId = UUID.randomUUID();
         paymentId = UUID.randomUUID();
         orderItemId = UUID.randomUUID();
+    }
+
+    @Test
+    public void getAllOrders_ShouldReturn200() throws Exception {
+        Order order1 = createPendingOrder(customerId);
+        Order order2 = createPendingOrder(customerId);
+        when(orderService.getAllOrders()).thenReturn(List.of(order1, order2));
+
+        mvc.perform(get("/api/v1/orders"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$[0].currency").value("MXN"))
+                .andExpect(jsonPath("$[0].amountTotal").value(0))
+                .andExpect(jsonPath("$[0].status").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$[1].customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$[1].currency").value("MXN"))
+                .andExpect(jsonPath("$[1].amountTotal").value(0))
+                .andExpect(jsonPath("$[1].status").value("PENDING_PAYMENT"));
+        verify(orderService).getAllOrders();
     }
 
     @Test
