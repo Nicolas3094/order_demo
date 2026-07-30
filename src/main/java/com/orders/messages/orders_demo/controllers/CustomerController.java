@@ -1,6 +1,8 @@
 package com.orders.messages.orders_demo.controllers;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +29,15 @@ public class CustomerController {
 
     public CustomerController(CustomerService customerService) {
         this.customerService = customerService;
+    }
+
+    @GetMapping
+    public ResponseEntity<List<CustomerResponse>> getAllCustomers() {
+        return ResponseEntity.ok(
+                customerService.getAllCustomers()
+                        .stream()
+                        .map(CustomerMapper::toResponse)
+                        .collect(Collectors.toList()));
     }
 
     @GetMapping("/{id}")

@@ -52,6 +52,25 @@ public class CustomerControllerTest {
     }
 
     @Test
+    public void getAllCustomers_ShouldReturn200() throws Exception {
+        UUID customerId_2 = UUID.randomUUID();
+        when(customerService.getAllCustomers())
+                .thenReturn(java.util.List.of(createActiveCustomer(customerId), createActiveCustomer(customerId_2)));
+
+        mvc.perform(get("/api/v1/customers")).andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$[0].id").value(customerId.toString()))
+                .andExpect(jsonPath("$[0].email").value(DEFAULT_EMAIL))
+                .andExpect(jsonPath("$[0].name").value(DEFAULT_NAME))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$[1].id").value(customerId_2.toString()))
+                .andExpect(jsonPath("$[1].email").value(DEFAULT_EMAIL))
+                .andExpect(jsonPath("$[1].name").value(DEFAULT_NAME))
+                .andExpect(jsonPath("$[1].status").value("ACTIVE"));
+        verify(customerService).getAllCustomers();
+    }
+
+    @Test
     public void getCustomer_ShouldReturn200() throws Exception {
         Customer customer = createActiveCustomer(customerId);
         when(customerService.getCustomer(customerId)).thenReturn(customer);

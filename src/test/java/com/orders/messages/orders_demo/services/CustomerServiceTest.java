@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.services;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,6 +43,22 @@ public class CustomerServiceTest {
     @BeforeEach
     public void setup() {
         customerId = UUID.randomUUID();
+    }
+
+    @Test
+    public void getAllCustomers_ShouldReturnListOfCustomers() {
+        UUID customerId_2 = UUID.randomUUID();
+        when(customerRepository.findAll())
+                .thenReturn(List.of(createActiveCustomer(customerId), createActiveCustomer(customerId_2)));
+
+        java.util.List<Customer> result = customerService.getAllCustomers();
+
+        assertEquals(2, result.size());
+        assertEquals(customerId, result.get(0).getId());
+        assertEquals(customerId_2, result.get(1).getId());
+        assertEquals(DEFAULT_EMAIL, result.get(0).getEmail());
+        assertEquals(DEFAULT_NAME, result.get(0).getName());
+        assertEquals(CustomerStatus.ACTIVE, result.get(0).getStatus());
     }
 
     @Test
