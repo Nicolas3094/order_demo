@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.services;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,6 +27,12 @@ public class PaymentAttemptService {
     public PaymentAttemptService(OrderRepository orderRepository, PaymentAttemptRepository paymentAttemptRepository) {
         this.orderRepository = orderRepository;
         this.paymentAttemptRepository = paymentAttemptRepository;
+    }
+
+    public List<PaymentAttempt> getAllPayments(UUID orderId) {
+        findOrder(orderId);
+
+        return paymentAttemptRepository.findByOrderId(orderId);
     }
 
     public PaymentAttempt getPaymentAttempt(UUID orderId, UUID paymentId) {

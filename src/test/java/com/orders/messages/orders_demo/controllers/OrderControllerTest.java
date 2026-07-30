@@ -724,6 +724,43 @@ public class OrderControllerTest {
      */
 
     @Test
+    public void getAllPayments_ShouldReturn200() throws Exception {
+        Order order = createPendingOrder(customerId);
+        PaymentAttempt paymentAttempt1 = createPaymentAttempt(paymentId, order);
+        PaymentAttempt paymentAttempt2 = createPaymentAttempt(paymentId, order);
+        when(paymentAttemptService.getAllPayments(orderId))
+                .thenReturn(List.of(paymentAttempt1, paymentAttempt2));
+
+        mvc.perform(get("/api/v1/orders/{orderId}/payments", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(paymentId.toString()))
+                .andExpect(jsonPath("$[0].provider").value("NONE"))
+                .andExpect(jsonPath("$[0].idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$[0].status").value("CREATED"))
+                .andExpect(jsonPath("$[1].id").value(paymentId.toString()))
+                .andExpect(jsonPath("$[1].provider").value("NONE"))
+                .andExpect(jsonPath("$[1].idempotencyKey").value(DEFAULT_IDEMPOTENCY_KEY))
+                .andExpect(jsonPath("$[1].status").value("CREATED"));
+        verify(paymentAttemptService).getAllPayments(orderId);
+    }
+
+    @Test
+    public void getAllPayments_WhenOrderNotFound_ShouldReturn404() throws Exception {
+        when(paymentAttemptService.getAllPayments(orderId)).thenThrow(new OrderNotFoundException());
+
+        mvc.perform(get("/api/v1/orders/{orderId}/payments", orderId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Order could not be found."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/payments"));
+        verify(paymentAttemptService).getAllPayments(orderId);
+    }
+
+    @Test
     public void getPayment_ShouldReturn200() throws Exception {
         Order order = createPendingOrder(customerId);
         PaymentAttempt paymentAttempt = createPaymentAttempt(paymentId, order);

@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.services;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -57,6 +58,36 @@ public class PaymentAttemptServiceTest {
         orderId = UUID.randomUUID();
     }
 
+    @Test
+    public void getAllPayments_WhenOrderExists_ReturnsPaymentAttempts() {
+        Order order = createOrderWithId(orderId);
+        PaymentAttempt payment1 = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
+        PaymentAttempt payment2 = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(paymentAttemptRepository.findByOrderId(orderId)).thenReturn(List.of(payment1, payment2));
+
+        List<PaymentAttempt> result = paymentAttemptService.getAllPayments(orderId);
+
+        assertEquals(2, result.size());
+        assertEquals(payment1, result.get(0));
+        assertEquals(payment2, result.get(1));
+        verify(orderRepository).findById(orderId);
+        verify(paymentAttemptRepository).findByOrderId(orderId);
+    }
+
+    @Test
+    public void getAllPayments_WhenOrderDoesNotExist_ThrowsOrderNotFoundException() {
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
+                () -> paymentAttemptService.getAllPayments(orderId));
+
+        assertEquals("Order could not be found.", result.getMessage());
+
+        verify(orderRepository).findById(orderId);
+        verify(paymentAttemptRepository, never()).findByOrderId(orderId);
+    }
+
     /*
      * 
      * getPaymentAttempt
@@ -73,6 +104,7 @@ public class PaymentAttemptServiceTest {
         PaymentAttempt result = paymentAttemptService.getPaymentAttempt(orderId, paymentId);
 
         assertEquals(paymentId, result.getId());
+        verify(paymentAttemptRepository).findById(paymentId);
     }
 
     @Test
@@ -81,6 +113,7 @@ public class PaymentAttemptServiceTest {
                 () -> paymentAttemptService.getPaymentAttempt(orderId, paymentId));
 
         assertEquals("Payment attempt not found.", result.getMessage());
+        verify(paymentAttemptRepository).findById(paymentId);
     }
 
     @Test
@@ -94,6 +127,7 @@ public class PaymentAttemptServiceTest {
                 () -> paymentAttemptService.getPaymentAttempt(otherOrderId, paymentId));
 
         assertEquals("Payment attempt not found.", result.getMessage());
+        verify(paymentAttemptRepository).findById(paymentId);
     }
 
     /*

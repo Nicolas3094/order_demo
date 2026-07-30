@@ -168,6 +168,15 @@ public class OrderController {
      * payment gateway webhooks (e.g. Stripe, Mercado Pago).
      */
 
+    @GetMapping("/{orderId}/payments")
+    public ResponseEntity<List<PaymentAttemptResponse>> getAllPayments(@PathVariable UUID orderId) {
+        return ResponseEntity.ok(
+                paymentAttemptService.getAllPayments(orderId)
+                        .stream()
+                        .map(PaymentAttemptMapper::toResponse)
+                        .toList());
+    }
+
     @GetMapping("/{orderId}/payments/{paymentId}")
     public ResponseEntity<PaymentAttemptResponse> getPayment(@PathVariable UUID orderId,
             @PathVariable UUID paymentId) {
