@@ -5,6 +5,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 import com.orders.messages.orders_demo.enums.Currency;
+import com.orders.messages.orders_demo.exceptions.product.InsufficientStockException;
 import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
 
 import jakarta.persistence.Column;
@@ -142,7 +143,7 @@ public class Product {
         validatePositiveQuantity(quantity);
 
         if (this.quantity < quantity) {
-            throw new IllegalArgumentException("Insufficient stock.");
+            throw new InsufficientStockException();
         }
 
         this.quantity -= quantity;

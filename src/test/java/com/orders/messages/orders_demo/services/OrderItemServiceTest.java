@@ -24,10 +24,10 @@ import com.orders.messages.orders_demo.entity.OrderItem;
 import com.orders.messages.orders_demo.entity.Product;
 import com.orders.messages.orders_demo.enums.Currency;
 import com.orders.messages.orders_demo.enums.OrderStatus;
-import com.orders.messages.orders_demo.exceptions.order_item.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.exceptions.order_item.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.exceptions.orders.InvalidOrderStateException;
 import com.orders.messages.orders_demo.exceptions.orders.OrderNotFoundException;
+import com.orders.messages.orders_demo.exceptions.product.InsufficientStockException;
 import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
 import com.orders.messages.orders_demo.exceptions.product.ProductNotFoundException;
 import com.orders.messages.orders_demo.repositories.OrderItemRepository;
@@ -101,13 +101,14 @@ public class OrderItemServiceTest {
     public void createOrderItem_WhenOrderAndProductFound_ShouldCreateOrderItem() {
         CreateOrderItemRequest request = createOrderItemRequest();
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
-        Product product = createProduct(true);
+        Product product = createProduct(true, 20L);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderItem result = orderItemService.createOrderItem(orderId, request);
 
+        assertEquals(10L, product.getQuantity());
         assertEquals(order, result.getOrder());
         assertEquals(1, order.getItems().size());
         assertEquals(DEFAULT_SKU, result.getSku());
@@ -115,6 +116,7 @@ public class OrderItemServiceTest {
         assertEquals(DEFAULT_UNIT_PRICE, result.getUnitPrice());
         assertEquals(DEFAULT_QUANTITY_LONG, result.getQuantity());
         verify(orderRepository).save(order);
+        verify(productRepository).save(product);
     }
 
     @Test
@@ -127,6 +129,7 @@ public class OrderItemServiceTest {
 
         assertEquals(ORDER_ERROR_MESSAGE, result.getMessage());
         verify(orderRepository, never()).save(any(Order.class));
+        verify(productRepository, never()).save(any(Product.class));
     }
 
     @Test
@@ -141,13 +144,14 @@ public class OrderItemServiceTest {
 
         assertEquals("Product with SKU sku could not be found.", result.getMessage());
         verify(orderRepository, never()).save(any(Order.class));
+        verify(productRepository, never()).save(any(Product.class));
     }
 
     @Test
     public void createOrderItem_WhenProductIsNotActive_ShouldThrowInvalidProductException() {
         CreateOrderItemRequest request = createOrderItemRequest();
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
-        Product product = createProduct(false);
+        Product product = createProduct(false, 20L);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
 
@@ -156,21 +160,23 @@ public class OrderItemServiceTest {
 
         assertEquals("Product with SKU sku is not active.", result.getMessage());
         verify(orderRepository, never()).save(any(Order.class));
+        verify(productRepository, never()).save(any(Product.class));
     }
 
     @Test
     public void createOrderItem_WhenProductDoesNotHaveEnoughStock_ShouldThrowInvalidProductException() {
-        CreateOrderItemRequest request = createOrderItemRequest();
+        CreateOrderItemRequest request = createOrderItemRequestWithQuantity(3L);
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
-        Product product = createProduct(true);
+        Product product = createProduct(true, 2L);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
 
-        InvalidProductException result = assertThrows(InvalidProductException.class,
+        InsufficientStockException result = assertThrows(InsufficientStockException.class,
                 () -> orderItemService.createOrderItem(orderId, request));
 
-        assertEquals("Product with SKU sku does not have enough stock.", result.getMessage());
+        assertEquals("Insufficient stock.", result.getMessage());
         verify(orderRepository, never()).save(any(Order.class));
+        verify(productRepository, never()).save(any(Product.class));
     }
 
     @Test
@@ -194,6 +200,7 @@ public class OrderItemServiceTest {
 
         assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
         verify(orderRepository, never()).save(any(Order.class));
+        verify(productRepository, never()).save(any(Product.class));
     }
 
     /*
@@ -345,13 +352,17 @@ public class OrderItemServiceTest {
         verify(orderItemRepository, never()).save(any(OrderItem.class));
     }
 
+    private static CreateOrderItemRequest createOrderItemRequestWithQuantity(Long quantity) {
+        return new CreateOrderItemRequest(DEFAULT_SKU, quantity);
+    }
+
     private static CreateOrderItemRequest createOrderItemRequest() {
         return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
     }
 
-    private static Product createProduct(boolean isActive) {
+    private static Product createProduct(boolean isActive, Long quantity) {
         return Product.builder()
-                .quantity(20L)
+                .quantity(quantity)
                 .name("product_name")
                 .sku(DEFAULT_SKU)
                 .description(DEFAULT_DESCRIPTION)

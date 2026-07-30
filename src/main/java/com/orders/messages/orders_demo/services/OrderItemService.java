@@ -49,13 +49,15 @@ public class OrderItemService {
 
         validateProductIsActive(product);
 
-        product.hasEnoughStock(request.quantity());
-
         order.validateCurrency(product);
+
+        product.decreaseStock(request.quantity());
 
         OrderItem item = OrderItemMapper.toEntity(request.quantity(), product);
 
         order.addItem(item);
+
+        productRepository.save(product);
 
         orderRepository.save(order);
 

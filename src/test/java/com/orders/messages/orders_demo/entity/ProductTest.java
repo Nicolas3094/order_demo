@@ -10,6 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import com.orders.messages.orders_demo.enums.Currency;
+import com.orders.messages.orders_demo.exceptions.product.InsufficientStockException;
 import com.orders.messages.orders_demo.exceptions.product.InvalidProductException;
 
 public class ProductTest {
@@ -122,7 +123,7 @@ public class ProductTest {
 
     @Test
     public void decreaseStock_WhenQuantityIsGreaterThanStock_ShouldThrowIllegalArgumentException() {
-        IllegalArgumentException result = assertThrows(IllegalArgumentException.class,
+        InsufficientStockException result = assertThrows(InsufficientStockException.class,
                 () -> product.decreaseStock(100));
 
         assertEquals("Insufficient stock.", result.getMessage());
