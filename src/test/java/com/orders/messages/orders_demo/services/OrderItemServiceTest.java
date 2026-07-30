@@ -6,6 +6,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import org.aspectj.weaver.ast.Or;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -210,17 +212,24 @@ public class OrderItemServiceTest {
      */
 
     @Test
-    public void deleteOrderItem_WhenOrderItemFound_ShouldDeleteOrderItem() {
+    public void deleteOrderItem_WhenOrderItemAndProductAreFound_ShouldDeleteOrderItem() {
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItem orderItem = createOrderItem();
+        Product product = createProduct(true, 2L);
         order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
 
         orderItemService.deleteOrderItem(orderId, orderItemId);
 
-        verify(orderItemRepository).findById(orderItemId);
-        verify(orderRepository).save(order);
+        assertEquals(12L, product.getQuantity());
         assertEquals(0, order.getItems().size());
+        verify(orderItemRepository).findById(orderItemId);
+        verify(productRepository).findBySku(DEFAULT_SKU);
+        verify(productRepository).save(product);
+        verify(orderRepository).save(order);
+        verify(orderItemRepository, never()).delete(any(OrderItem.class));
+
     }
 
     @Test
@@ -231,6 +240,22 @@ public class OrderItemServiceTest {
 
         assertEquals(ORDER_ITEM_ERROR_MESSAGE, result.getMessage());
         verify(orderItemRepository, never()).delete(any(OrderItem.class));
+    }
+
+    @Test
+    public void deleteOrderItem_WhenProductIsNotFound_ShouldThrowProductNotFoundException() {
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.empty());
+
+        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
+                () -> orderItemService.deleteOrderItem(orderId, orderItemId));
+
+        assertEquals("Product with SKU sku could not be found.", result.getMessage());
+        verify(orderItemRepository, never()).delete(any(OrderItem.class));
+        verify(productRepository, never()).save(any(Product.class));
     }
 
     @Test

@@ -86,11 +86,17 @@ public class OrderItemService {
     public void deleteOrderItem(UUID orderId, UUID orderItemId) {
         OrderItem orderItem = findOrderItem(orderId, orderItemId);
 
-        validatePendingOrder(orderItem.getOrder());
-
         Order order = orderItem.getOrder();
 
+        validatePendingOrder(order);
+
+        Product product = findProduct(orderItem.getSku());
+
+        product.increaseStock(orderItem.getQuantity());
+
         order.removeItem(orderItem);
+
+        productRepository.save(product);
 
         orderRepository.save(order);
     }
