@@ -74,6 +74,8 @@ public class OrderService {
 
         action.accept(order);
 
+        // TODO: Optimize product loading using findBySkuIn(...) and saveAll() to avoid
+        // N+1 queries for large orders.
         for (OrderItem item : order.getItems()) {
             Product product = productRepository.findBySku(item.getSku())
                     .orElseThrow(() -> new ProductNotFoundException(item.getSku()));
