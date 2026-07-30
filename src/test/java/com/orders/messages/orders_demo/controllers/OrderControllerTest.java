@@ -92,6 +92,12 @@ public class OrderControllerTest {
         orderItemId = UUID.randomUUID();
     }
 
+    /*
+     * 
+     * ORDER
+     * 
+     */
+
     @Test
     public void getAllOrders_ShouldReturn200() throws Exception {
         Order order1 = createPendingOrder(customerId);
@@ -354,6 +360,42 @@ public class OrderControllerTest {
      */
 
     @Test
+    public void getAllOrderItems_ShouldReturn200() throws Exception {
+        OrderItem orderItem1 = createOrderItem();
+        OrderItem orderItem2 = createOrderItem();
+        when(orderItemService.getAllOrderItems(orderId))
+                .thenReturn(List.of(orderItem1, orderItem2));
+
+        mvc.perform(get("/api/v1/orders/{orderId}/items", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].sku").value(DEFAULT_SKU))
+                .andExpect(jsonPath("$[0].description").value(DEFAULT_DESCRIPTION))
+                .andExpect(jsonPath("$[0].unitPrice").value(123.00))
+                .andExpect(jsonPath("$[0].quantity").value(DEFAULT_QUANTITY))
+                .andExpect(jsonPath("$[1].sku").value(DEFAULT_SKU))
+                .andExpect(jsonPath("$[1].description").value(DEFAULT_DESCRIPTION))
+                .andExpect(jsonPath("$[1].unitPrice").value(123.00))
+                .andExpect(jsonPath("$[1].quantity").value(DEFAULT_QUANTITY));
+        verify(orderItemService).getAllOrderItems(orderId);
+    }
+
+    @Test
+    public void getAllOrderItems_WhenOrderNotFound_ShouldReturn404() throws Exception {
+        when(orderItemService.getAllOrderItems(orderId)).thenThrow(new OrderNotFoundException());
+
+        mvc.perform(get("/api/v1/orders/{orderId}/items", orderId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Order could not be found."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items"));
+        verify(orderItemService).getAllOrderItems(orderId);
+    }
+
+    @Test
     public void getOrderItem_ShouldReturn200() throws Exception {
         Order order = createPendingOrder(customerId);
         OrderItem orderItem = createOrderItem();
@@ -382,7 +424,8 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.error").value("Not Found"))
                 .andExpect(jsonPath("$.message").value("Order item not found."))
-                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + orderItemId));
+                .andExpect(jsonPath("$.path")
+                        .value("/api/v1/orders/" + orderId + "/items/" + orderItemId));
         verify(orderItemService).getOrderItem(orderId, orderItemId);
     }
 

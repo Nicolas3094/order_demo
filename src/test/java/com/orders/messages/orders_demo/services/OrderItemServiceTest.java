@@ -64,6 +64,32 @@ public class OrderItemServiceTest {
         orderItemId = UUID.randomUUID();
     }
 
+    @Test
+    public void getAllOrderItems_WhenOrderFound_ShouldGetAllOrderItems() {
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem1 = createOrderItem();
+        OrderItem orderItem2 = createOrderItem();
+        order.addItem(orderItem1);
+        order.addItem(orderItem2);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+
+        var result = orderItemService.getAllOrderItems(orderId);
+
+        assertEquals(2, result.size());
+        assertEquals(orderItem1, result.get(0));
+        assertEquals(orderItem2, result.get(1));
+    }
+
+    @Test
+    public void getAllOrderItems_WhenOrderNotFound_ShouldThrowOrderNotFoundException() {
+        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+
+        OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
+                () -> orderItemService.getAllOrderItems(orderId));
+
+        assertEquals(ORDER_ERROR_MESSAGE, result.getMessage());
+    }
+
     /*
      * 
      * getOrderItem

@@ -1,6 +1,7 @@
 package com.orders.messages.orders_demo.services;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -33,6 +34,10 @@ public class OrderItemService {
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
+    }
+
+    public List<OrderItem> getAllOrderItems(UUID orderId) {
+        return findOrder(orderId).getItems();
     }
 
     public OrderItem getOrderItem(UUID orderId, UUID orderItemId) {

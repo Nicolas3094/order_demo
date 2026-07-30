@@ -2,7 +2,6 @@ package com.orders.messages.orders_demo.controllers;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -57,7 +56,7 @@ public class OrderController {
                 orderService.getAllOrders()
                         .stream()
                         .map(OrderMapper::toResponse)
-                        .collect(Collectors.toList()));
+                        .toList());
     }
 
     @GetMapping("/{id}")
@@ -100,6 +99,15 @@ public class OrderController {
      * Order Item
      * 
      */
+
+    @GetMapping("/{orderId}/items")
+    public ResponseEntity<List<OrderItemResponse>> getAllOrderItems(@PathVariable UUID orderId) {
+        return ResponseEntity.ok(
+                orderItemService.getAllOrderItems(orderId)
+                        .stream()
+                        .map(OrderItemMapper::toResponse)
+                        .toList());
+    }
 
     @GetMapping("/{orderId}/items/{orderItemId}")
     public ResponseEntity<OrderItemResponse> getOrderItem(
