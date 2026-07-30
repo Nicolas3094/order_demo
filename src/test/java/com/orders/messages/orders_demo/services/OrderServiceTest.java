@@ -53,6 +53,12 @@ public class OrderServiceTest {
         orderId = fakeOrder.getId();
     }
 
+    /*
+     * 
+     * getOrder
+     * 
+     */
+
     @Test
     public void getOrder_WhenOrderExists_ReturnsOrder() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
@@ -69,6 +75,12 @@ public class OrderServiceTest {
 
         assertEquals("Order could not be found.", result.getMessage());
     }
+
+    /*
+     * 
+     * createOrder
+     * 
+     */
 
     @Test
     public void createOrder_WhenCustomerExists_ShouldSaveOrder() {
@@ -102,6 +114,12 @@ public class OrderServiceTest {
         verify(orderRepository, never()).save(any(Order.class));
     }
 
+    /*
+     * 
+     * cancelOrder
+     * 
+     */
+
     @Test
     public void cancelOrder_WhenOrderExists_ShouldCancelOrder() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
@@ -115,30 +133,10 @@ public class OrderServiceTest {
 
     @Test
     public void cancelOrder_WhenOrderExists_ShouldIncreaseStockForEachOrderItem() {
-        Product product1 = Product.builder()
-                .name("Product 1")
-                .sku("SKU1")
-                .description("Product 1 description")
-                .price(BigDecimal.valueOf(10))
-                .quantity(5L)
-                .build();
-        Product product2 = Product.builder()
-                .name("Product 2")
-                .sku("SKU2")
-                .description("Product 2 description")
-                .price(BigDecimal.valueOf(20))
-                .quantity(3L)
-                .build();
-        OrderItem item1 = OrderItem.builder()
-                .sku(product1.getSku())
-                .quantity(2L)
-                .unitPrice(product1.getPrice())
-                .build();
-        OrderItem item2 = OrderItem.builder()
-                .sku(product2.getSku())
-                .quantity(1L)
-                .unitPrice(product2.getPrice())
-                .build();
+        Product product1 = createProduct("SKU1", 5L);
+        Product product2 = createProduct("SKU2", 3L);
+        OrderItem item1 = createOrderItem(product1, 2L);
+        OrderItem item2 = createOrderItem(product2, 1L);
         fakeOrder.addItem(item1);
         fakeOrder.addItem(item2);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
@@ -157,18 +155,8 @@ public class OrderServiceTest {
 
     @Test
     public void cancelOrder_WhenProductNotFound_ShouldThrowProductNotFoundException() {
-        Product product1 = Product.builder()
-                .name("Product 1")
-                .sku("SKU1")
-                .description("Product 1 description")
-                .price(BigDecimal.valueOf(10))
-                .quantity(5L)
-                .build();
-        OrderItem item1 = OrderItem.builder()
-                .sku(product1.getSku())
-                .quantity(2L)
-                .unitPrice(product1.getPrice())
-                .build();
+        Product product1 = createProduct("SKU1", 5L);
+        OrderItem item1 = createOrderItem(product1, 2L);
         fakeOrder.addItem(item1);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         when(productRepository.findBySku(product1.getSku())).thenReturn(Optional.empty());
@@ -188,6 +176,12 @@ public class OrderServiceTest {
         assertEquals("Order could not be found.", result.getMessage());
     }
 
+    /*
+     * 
+     * expireOrder
+     * 
+     */
+
     @Test
     public void expireOrder_WhenOrderExists_ShouldExpireOrder() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
@@ -200,11 +194,55 @@ public class OrderServiceTest {
     }
 
     @Test
+    public void expireOrder_WhenOrderExists_ShouldIncreaseStockForEachOrderItem() {
+        Product product1 = createProduct("SKU1", 5L);
+        Product product2 = createProduct("SKU2", 3L);
+        OrderItem item1 = createOrderItem(product1, 2L);
+        OrderItem item2 = createOrderItem(product2, 1L);
+        fakeOrder.addItem(item1);
+        fakeOrder.addItem(item2);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(productRepository.findBySku(product1.getSku())).thenReturn(Optional.of(product1));
+        when(productRepository.findBySku(product2.getSku())).thenReturn(Optional.of(product2));
+        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Order result = orderService.expireOrder(orderId);
+
+        assertEquals(OrderStatus.EXPIRED, result.getStatus());
+        assertEquals(7, product1.getQuantity());
+        assertEquals(4, product2.getQuantity());
+        verify(orderRepository).save(fakeOrder);
+        verify(productRepository, times(2)).save(any(Product.class));
+    }
+
+    @Test
+    public void expireOrder_WhenProductNotFound_ShouldThrowProductNotFoundException() {
+        Product product1 = createProduct("SKU1", 5L);
+        OrderItem item1 = createOrderItem(product1, 2L);
+        fakeOrder.addItem(item1);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(productRepository.findBySku(product1.getSku())).thenReturn(Optional.empty());
+
+        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
+                () -> orderService.expireOrder(orderId));
+
+        assertEquals("Product with SKU SKU1 could not be found.", result.getMessage());
+        verify(orderRepository, never()).save(any(Order.class));
+        verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
     public void expireOrder_WhenOrderDoesNotExist_ShouldThrowOrderNotFoundException() {
         Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.expireOrder(orderId));
 
         assertEquals("Order could not be found.", result.getMessage());
     }
+
+    /*
+     * 
+     * refundOrder
+     * 
+     */
 
     @Test
     public void refundOrder_WhenOrderExists_ShouldRefundOrder() {
@@ -219,10 +257,66 @@ public class OrderServiceTest {
     }
 
     @Test
+    public void refundOrder_WhenOrderExists_ShouldIncreaseStockForEachOrderItem() {
+        Product product1 = createProduct("SKU1", 5L);
+        Product product2 = createProduct("SKU2", 3L);
+        OrderItem item1 = createOrderItem(product1, 2L);
+        OrderItem item2 = createOrderItem(product2, 1L);
+        fakeOrder.addItem(item1);
+        fakeOrder.addItem(item2);
+        fakeOrder.markAsPaid();
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(productRepository.findBySku(product1.getSku())).thenReturn(Optional.of(product1));
+        when(productRepository.findBySku(product2.getSku())).thenReturn(Optional.of(product2));
+        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Order result = orderService.refundOrder(orderId);
+
+        assertEquals(OrderStatus.REFUNDED, result.getStatus());
+        assertEquals(7, product1.getQuantity());
+        assertEquals(4, product2.getQuantity());
+        verify(orderRepository).save(fakeOrder);
+        verify(productRepository, times(2)).save(any(Product.class));
+    }
+
+    @Test
+    public void refundOrder_WhenProductNotFound_ShouldThrowProductNotFoundException() {
+        Product product1 = createProduct("SKU1", 5L);
+        OrderItem item1 = createOrderItem(product1, 2L);
+        fakeOrder.addItem(item1);
+        fakeOrder.markAsPaid();
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(productRepository.findBySku(product1.getSku())).thenReturn(Optional.empty());
+
+        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
+                () -> orderService.refundOrder(orderId));
+
+        assertEquals("Product with SKU SKU1 could not be found.", result.getMessage());
+        verify(orderRepository, never()).save(any(Order.class));
+        verify(productRepository, never()).save(any(Product.class));
+    }
+
+    @Test
     public void refundOrder_WhenOrderDoesNotExist_ShouldThrowOrderNotFoundException() {
         Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.refundOrder(orderId));
 
         assertEquals("Order could not be found.", result.getMessage());
     }
 
+    private OrderItem createOrderItem(Product product, Long quantity) {
+        return OrderItem.builder()
+                .sku(product.getSku())
+                .quantity(quantity)
+                .unitPrice(product.getPrice())
+                .build();
+    }
+
+    private Product createProduct(String sku, Long quantity) {
+        return Product.builder()
+                .name(sku)
+                .sku(sku)
+                .price(BigDecimal.valueOf(10))
+                .quantity(quantity)
+                .build();
+    }
 }

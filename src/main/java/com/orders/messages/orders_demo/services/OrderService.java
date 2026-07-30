@@ -1,6 +1,7 @@
 package com.orders.messages.orders_demo.services;
 
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
@@ -48,15 +49,34 @@ public class OrderService {
     }
 
     public Order cancelOrder(UUID id) {
+        return restoreProductsStock(id, Order::cancelOrder);
+    }
+
+    public Order expireOrder(UUID id) {
+        return restoreProductsStock(id, Order::expire);
+    }
+
+    public Order refundOrder(UUID id) {
+        return restoreProductsStock(id, Order::refund);
+    }
+
+    /**
+     * Applies an order state transition that requires restoring the stock
+     * of all associated products.
+     *
+     * @param id     The order identifier.
+     * @param action The state transition to apply (cancel, expire or refund).
+     * @return The updated order.
+     */
+    private Order restoreProductsStock(UUID id, Consumer<Order> action) {
         Order order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
 
-        order.cancelOrder();
+        action.accept(order);
 
         for (OrderItem item : order.getItems()) {
             Product product = productRepository.findBySku(item.getSku())
-                    .orElseThrow(
-                            () -> new ProductNotFoundException(item.getSku()));
+                    .orElseThrow(() -> new ProductNotFoundException(item.getSku()));
 
             product.increaseStock(item.getQuantity());
 
@@ -64,24 +84,7 @@ public class OrderService {
         }
 
         return orderRepository.save(order);
-    }
 
-    public Order expireOrder(UUID id) {
-        Order order = orderRepository.findById(id)
-                .orElseThrow(OrderNotFoundException::new);
-
-        order.expire();
-
-        return orderRepository.save(order);
-    }
-
-    public Order refundOrder(UUID id) {
-        Order order = orderRepository.findById(id)
-                .orElseThrow(OrderNotFoundException::new);
-
-        order.refund();
-
-        return orderRepository.save(order);
     }
 
 }
