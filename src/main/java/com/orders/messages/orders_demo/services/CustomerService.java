@@ -2,6 +2,7 @@ package com.orders.messages.orders_demo.services;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
@@ -32,17 +33,17 @@ public class CustomerService {
     }
 
     public Customer deactivateCustomer(UUID id) {
-        Customer customer = customerRepository.findById(id).orElseThrow(CustomerNotFoundException::new);
-
-        customer.deactivate();
-
-        return customerRepository.save(customer);
+        return updateCustomerState(id, Customer::deactivate);
     }
 
     public Customer activateCustomer(UUID id) {
+        return updateCustomerState(id, Customer::activate);
+    }
+
+    public Customer updateCustomerState(UUID id, Consumer<Customer> action) {
         Customer customer = customerRepository.findById(id).orElseThrow(CustomerNotFoundException::new);
 
-        customer.activate();
+        action.accept(customer);
 
         return customerRepository.save(customer);
     }

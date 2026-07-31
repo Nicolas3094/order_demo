@@ -3,6 +3,7 @@ package com.orders.messages.orders_demo.services;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
@@ -71,20 +72,12 @@ public class OrderItemService {
 
     @Transactional
     public OrderItem changeUnitPrice(UUID orderId, UUID orderItemId, BigDecimal unitPrice) {
-        OrderItem orderItem = findOrderItem(orderId, orderItemId);
-
-        orderItem.changeUnitPrice(unitPrice);
-
-        return orderItemRepository.save(orderItem);
+        return updateOrderItemState(orderId, orderItemId, orderItem -> orderItem.changeUnitPrice(unitPrice));
     }
 
     @Transactional
     public OrderItem changeQuantity(UUID orderId, UUID orderItemId, Long quantity) {
-        OrderItem orderItem = findOrderItem(orderId, orderItemId);
-
-        orderItem.changeQuantity(quantity);
-
-        return orderItemRepository.save(orderItem);
+        return updateOrderItemState(orderId, orderItemId, orderItem -> orderItem.changeQuantity(quantity));
     }
 
     @Transactional
@@ -104,6 +97,14 @@ public class OrderItemService {
         productRepository.save(product);
 
         orderRepository.save(order);
+    }
+
+    private OrderItem updateOrderItemState(UUID orderId, UUID orderItemId, Consumer<OrderItem> action) {
+        OrderItem orderItem = findOrderItem(orderId, orderItemId);
+
+        action.accept(orderItem);
+
+        return orderItemRepository.save(orderItem);
     }
 
     /**

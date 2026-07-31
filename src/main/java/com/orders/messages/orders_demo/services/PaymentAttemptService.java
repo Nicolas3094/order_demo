@@ -3,6 +3,7 @@ package com.orders.messages.orders_demo.services;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
@@ -61,50 +62,48 @@ public class PaymentAttemptService {
 
     @Transactional
     public PaymentAttempt startProcessing(UUID orderId, UUID paymentId) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
-        Order order = paymentAttempt.getOrder();
+        return updatePaymentAttemptState(orderId, paymentId, payment -> {
+            Order order = payment.getOrder();
 
-        if (!order.canAcceptPayments()) {
-            throw new InvalidPaymentStateException("Only pending orders can be processed.");
-        }
+            if (!order.canAcceptPayments()) {
+                throw new InvalidPaymentStateException("Only pending orders can be processed.");
+            }
 
-        paymentAttempt.startProcessing();
-
-        return paymentAttemptRepository.save(paymentAttempt);
+            payment.startProcessing();
+        });
     }
 
     @Transactional
     public PaymentAttempt markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
-        Order order = paymentAttempt.getOrder();
+        return updatePaymentAttemptState(orderId, paymentId, payment -> {
+            Order order = payment.getOrder();
 
-        if (!order.canAcceptPayments()) {
-            throw new InvalidPaymentStateException("Only pending orders can be marked as paid.");
-        }
+            if (!order.canAcceptPayments()) {
+                throw new InvalidPaymentStateException("Only pending orders can be marked as paid.");
+            }
 
-        paymentAttempt.markAsSucceeded(providerRef);
+            payment.markAsSucceeded(providerRef);
 
-        order.markAsPaid();
+            order.markAsPaid();
 
-        orderRepository.save(order);
-
-        return paymentAttemptRepository.save(paymentAttempt);
+            orderRepository.save(order);
+        });
     }
 
     @Transactional
     public PaymentAttempt markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
-
-        paymentAttempt.markAsFailed(code, errorMessage);
-
-        return paymentAttemptRepository.save(paymentAttempt);
+        return updatePaymentAttemptState(orderId, paymentId, payment -> payment.markAsFailed(code, errorMessage));
     }
 
     @Transactional
     public PaymentAttempt markAsCancelled(UUID orderId, UUID paymentId) {
+        return updatePaymentAttemptState(orderId, paymentId, PaymentAttempt::cancel);
+    }
+
+    private PaymentAttempt updatePaymentAttemptState(UUID orderId, UUID paymentId, Consumer<PaymentAttempt> action) {
         PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
-        paymentAttempt.cancel();
+        action.accept(paymentAttempt);
 
         return paymentAttemptRepository.save(paymentAttempt);
     }
