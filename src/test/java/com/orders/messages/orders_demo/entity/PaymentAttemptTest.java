@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import com.orders.messages.orders_demo.enums.Currency;
@@ -74,7 +75,7 @@ public class PaymentAttemptTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "SUCCEEDED", "FAILED", "CANCELLED" })
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
     public void markAsSucceeded_WhenStatusIsOtherThanProcessing_ShouldThrowInvalidPaymentExceptionWithMessage(
             PaymentStatus status) {
         String providerRef = "provider_ref";
@@ -100,7 +101,7 @@ public class PaymentAttemptTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "SUCCEEDED", "FAILED", "CANCELLED" })
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
     public void markAsFailedWhenStatusIsOtherThanProcessing_ShouldThrowInvalidPaymentExceptionWithMessage(
             PaymentStatus status) {
         Integer statusCode = 500;
@@ -139,7 +140,6 @@ public class PaymentAttemptTest {
                 DEFAULT_ORDER, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY, status);
     }
 
-    @SuppressWarnings("unused")
     private static Stream<Arguments> invalidPaymentStateExceptionWhenPaymentIsCancelled() {
         return Stream.of(
                 Arguments.of(PaymentStatus.SUCCEEDED, "Successful payments cannot be cancelled."),

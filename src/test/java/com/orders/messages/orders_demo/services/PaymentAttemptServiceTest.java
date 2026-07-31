@@ -13,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.junit.jupiter.params.provider.MethodSource;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -232,7 +233,7 @@ public class PaymentAttemptServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, names = { "PAID", "CANCELLED", "EXPIRED", "REFUNDED" })
+    @EnumSource(value = OrderStatus.class, mode = Mode.EXCLUDE, names = { "PENDING_PAYMENT" })
     public void startProcessing_WhenPaymentIsFoundAndOrderCannotAcceptPayments_ShouldThrowInvalidPaymentStateException(
             OrderStatus orderStatus) {
         Order order = createOrderWithStatusAndId(orderId, orderStatus);
@@ -328,7 +329,7 @@ public class PaymentAttemptServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, names = { "PAID", "CANCELLED", "EXPIRED", "REFUNDED" })
+    @EnumSource(value = OrderStatus.class, mode = Mode.EXCLUDE, names = { "PENDING_PAYMENT" })
     public void markAsSucceeded_WhenOrderCannotAcceptPayments_ShouldThrowInvalidPaymentStateException(
             OrderStatus orderStatus) {
         Order order = createOrderWithStatusAndId(orderId, orderStatus);
@@ -345,7 +346,7 @@ public class PaymentAttemptServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "SUCCEEDED", "FAILED", "CANCELLED" })
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
     public void markAsSucceeded_WhenNonProcessingPaymentIsFoundAndOrderCanAcceptPayments_ShouldThrowInvalidPaymentStateException(
             PaymentStatus paymentStatus) {
         Order order = createOrderWithId(orderId);
@@ -407,7 +408,7 @@ public class PaymentAttemptServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "SUCCEEDED", "FAILED", "CANCELLED" })
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
     public void markAsFailed_WhenPaymentIsNotProcessing_ShouldThrowInvalidPaymentStateException(
             PaymentStatus paymentStatus) {
         Order order = createOrderWithId(orderId);
