@@ -991,6 +991,7 @@ public class OrderControllerTest {
                 DEFAULT_QUANTITY);
     }
 
+    @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsFromPending() {
         return Stream.of(
                 Arguments.of(new OrderAlreadyCancelledException(), "Order is already cancelled."),
@@ -998,6 +999,7 @@ public class OrderControllerTest {
                 Arguments.of(new OrderAlreadyPaidException(), "Paid orders cannot be modified."));
     }
 
+    @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsOnRefundOrder() {
         return Stream.of(
                 Arguments.of(new OrderAlreadyCancelledException(), "Order is already cancelled."),
