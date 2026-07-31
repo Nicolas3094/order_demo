@@ -1,9 +1,10 @@
 package com.orders.messages.orders_demo.entity;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -145,18 +146,17 @@ public class ProductTest {
     @ParameterizedTest
     @ValueSource(ints = { 5, 10 })
     public void hasEnoughStock_WhenQuantityIsLessOrEqualThanStock_ShouldReturnTrue(int quantity) {
-        Product product = createProduct();
 
-        boolean result = product.hasEnoughStock(quantity);
+        boolean result = createProduct().hasEnoughStock(quantity);
 
         assertTrue(result);
     }
 
     @Test
     public void hasEnoughStock_WhenQuantityIsGreaterThanStock_ShouldThrowInvalidProductException() {
-        Product product = createProduct();
 
-        InvalidProductException result = assertThrows(InvalidProductException.class, () -> product.hasEnoughStock(15));
+        InvalidProductException result = assertThrows(InvalidProductException.class,
+                () -> createProduct().hasEnoughStock(15));
 
         assertEquals("Product with SKU SKU-001 does not have enough stock.", result.getMessage());
     }

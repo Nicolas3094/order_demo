@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -239,11 +240,12 @@ public class OrderTest {
     @Test
     public void getItems_ShouldNotAllowExternalModification() {
         fakeOrder.addItem(OrderItem.builder().build());
-
         List<OrderItem> items = fakeOrder.getItems();
 
-        assertThrows(UnsupportedOperationException.class,
+        UnsupportedOperationException result = assertThrows(UnsupportedOperationException.class,
                 () -> items.clear());
+
+        assertNotNull(result);
     }
 
     @Test
