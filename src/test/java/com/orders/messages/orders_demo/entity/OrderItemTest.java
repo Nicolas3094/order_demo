@@ -113,37 +113,45 @@ public class OrderItemTest {
 
     @Test
     public void builder_WhenSkuIsNull_ShouldThrowNullPointerException() {
-        assertThrows(NullPointerException.class,
+        NullPointerException result = assertThrows(NullPointerException.class,
                 () -> OrderItem.builder()
                         .sku(null)
                         .build());
+
+        assertEquals("SKU cannot be null.", result.getMessage());
     }
 
     @Test
     public void builder_WhenUnitPriceIsNull_ShouldThrowNullPointerException() {
 
-        assertThrows(NullPointerException.class,
+        NullPointerException result = assertThrows(NullPointerException.class,
                 () -> OrderItem.builder()
                         .unitPrice(null)
                         .build());
+
+        assertEquals("Price cannot be null.", result.getMessage());
     }
 
     @Test
     public void builder_WhenQuantityIsNull_ShouldThrowNullPointerException() {
 
-        assertThrows(NullPointerException.class,
+        NullPointerException result = assertThrows(NullPointerException.class,
                 () -> OrderItem.builder()
                         .quantity(null)
                         .build());
+
+        assertEquals("Quantity cannot be null.", result.getMessage());
     }
 
     @Test
     public void builder_WhenDescriptionIsNull_ShouldThrowNullPointerException() {
 
-        assertThrows(NullPointerException.class,
+        NullPointerException result = assertThrows(NullPointerException.class,
                 () -> OrderItem.builder()
                         .description(null)
                         .build());
+
+        assertEquals("Description cannot be null.", result.getMessage());
     }
 
     private static Order createOrderWithStatus(OrderStatus orderStatus) {

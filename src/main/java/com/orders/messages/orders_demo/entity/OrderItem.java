@@ -145,7 +145,7 @@ public class OrderItem {
         }
 
         public Builder sku(String sku) {
-            this.sku = Objects.requireNonNull(sku);
+            this.sku = Objects.requireNonNull(sku, "SKU cannot be null.");
 
             if (sku.isBlank()) {
                 throw new IllegalArgumentException("Sku cannot be blank.");
@@ -155,17 +155,17 @@ public class OrderItem {
         }
 
         public Builder description(String description) {
-            this.description = Objects.requireNonNull(description);
+            this.description = Objects.requireNonNull(description, "Description cannot be null.");
             return this;
         }
 
         public Builder unitPrice(BigDecimal unitPrice) {
-            this.unitPrice = Objects.requireNonNull(unitPrice);
+            this.unitPrice = Objects.requireNonNull(unitPrice, "Price cannot be null.");
             return this;
         }
 
         public Builder quantity(Long quantity) {
-            this.quantity = Objects.requireNonNull(quantity);
+            this.quantity = Objects.requireNonNull(quantity, "Quantity cannot be null.");
             return this;
         }
 
