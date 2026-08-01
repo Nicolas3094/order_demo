@@ -34,44 +34,93 @@ public class OrderService {
         this.productRepository = productRepository;
     }
 
+    /**
+     * Retrieves all orders.
+     *
+     * @return a list containing all persisted orders.
+     */
     public List<Order> getAllOrders() {
         return orderRepository.findAll();
     }
 
+    /**
+     * Retrieves an order by its identifier.
+     *
+     * @param id the order identifier.
+     * @return the requested order.
+     * @throws OrderNotFoundException if the order does not exist.
+     */
     public Order getOrder(UUID id) {
         return orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
 
     }
 
+    /**
+     * Creates a new order for the specified customer.
+     *
+     * @param createOrderRequest the information required to create the order.
+     * @return the persisted order.
+     * @throws CustomerNotFoundException if the customer does not exist.
+     */
     public Order createOrder(CreateOrderRequest createOrderRequest) {
-        Customer customer = customerRepository.findById(createOrderRequest.customerId())
-                .orElseThrow(CustomerNotFoundException::new);
+        Customer customer = findCustomerById(createOrderRequest.customerId());
 
         Order order = OrderMapper.toEntity(createOrderRequest, customer);
 
         return orderRepository.save(order);
     }
 
+    /**
+     * Cancels an order and restores the stock of all associated products.
+     *
+     * @param id the order identifier.
+     * @return the updated order.
+     * @throws OrderNotFoundException   if the order does not exist.
+     * @throws ProductNotFoundException if any associated product cannot be found.
+     */
     public Order cancelOrder(UUID id) {
         return restoreProductsStock(id, Order::cancelOrder);
     }
 
+    /**
+     * Expires an order and restores the stock of all associated products.
+     *
+     * @param id the order identifier.
+     * @return the updated order.
+     * @throws OrderNotFoundException   if the order does not exist.
+     * @throws ProductNotFoundException if any associated product cannot be found.
+     */
     public Order expireOrder(UUID id) {
         return restoreProductsStock(id, Order::expire);
     }
 
+    /**
+     * Refunds an order and restores the stock of all associated products.
+     *
+     * @param id the order identifier.
+     * @return the updated order.
+     * @throws OrderNotFoundException   if the order does not exist.
+     * @throws ProductNotFoundException if any associated product cannot be found.
+     */
     public Order refundOrder(UUID id) {
         return restoreProductsStock(id, Order::refund);
     }
 
     /**
-     * Applies an order state transition that requires restoring the stock
-     * of all associated products.
+     * Applies a state transition to an order and restores the stock of all
+     * associated products.
      *
-     * @param id     The order identifier.
-     * @param action The state transition to apply (cancel, expire or refund).
-     * @return The updated order.
+     * <p>
+     * This method is shared by order operations that return reserved inventory to
+     * stock, such as cancellation, expiration, and refund.
+     * </p>
+     *
+     * @param id     the order identifier.
+     * @param action the state transition to apply.
+     * @return the updated order.
+     * @throws OrderNotFoundException   if the order does not exist.
+     * @throws ProductNotFoundException if any associated product cannot be found.
      */
     private Order restoreProductsStock(UUID id, Consumer<Order> action) {
         Order order = orderRepository.findById(id)
@@ -92,6 +141,18 @@ public class OrderService {
 
         return orderRepository.save(order);
 
+    }
+
+    /**
+     * Retrieves a customer by its identifier.
+     *
+     * @param customerId the customer identifier.
+     * @return the requested customer.
+     * @throws CustomerNotFoundException if the customer does not exist.
+     */
+    private Customer findCustomerById(UUID customerId) {
+        return customerRepository.findById(customerId)
+                .orElseThrow(CustomerNotFoundException::new);
     }
 
 }
