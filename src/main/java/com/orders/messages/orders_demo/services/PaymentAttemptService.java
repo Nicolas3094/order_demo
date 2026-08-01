@@ -30,18 +30,47 @@ public class PaymentAttemptService {
         this.paymentAttemptRepository = paymentAttemptRepository;
     }
 
+    /**
+     * Retrieves all payment attempts associated with the specified order.
+     *
+     * @param orderId the order identifier.
+     * @return a list containing all payment attempts for the order.
+     * @throws OrderNotFoundException if the order does not exist.
+     */
     public List<PaymentAttempt> getAllPayments(UUID orderId) {
-        findOrder(orderId);
-
-        return paymentAttemptRepository.findByOrderId(orderId);
+        return paymentAttemptRepository.findByOrderId(findOrder(orderId).getId());
     }
 
+    /**
+     * Retrieves a payment attempt by its identifier and verifies that it belongs to
+     * the specified order.
+     *
+     * @param orderId   the order identifier.
+     * @param paymentId the payment attempt identifier.
+     * @return the requested payment attempt.
+     * @throws PaymentNotFoundException if the payment attempt does not exist or
+     *                                  does not belong to the specified order.
+     */
     public PaymentAttempt getPaymentAttempt(UUID orderId, UUID paymentId) {
-        PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
-
-        return paymentAttempt;
+        return findPaymentAttempt(orderId, paymentId);
     }
 
+    /**
+     * Creates a new payment attempt for the specified order.
+     *
+     * <p>
+     * If a payment attempt with the same idempotency key already exists, the
+     * existing payment attempt is returned instead of creating a new one.
+     * </p>
+     *
+     * @param orderId        the order identifier.
+     * @param paymentRequest the payment attempt creation request.
+     * @return the newly created payment attempt, or the existing one with the same
+     *         idempotency key.
+     * @throws OrderNotFoundException       if the order does not exist.
+     * @throws InvalidPaymentStateException if the order can no longer receive
+     *                                      payment attempts.
+     */
     @Transactional
     public PaymentAttempt createPaymentAttempt(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
         Order order = findOrder(orderId);
@@ -60,6 +89,17 @@ public class PaymentAttemptService {
         return paymentAttemptRepository.save(PaymentAttemptMapper.toEntity(paymentRequest, order));
     }
 
+    /**
+     * Marks a payment attempt as processing.
+     *
+     * @param orderId   the order identifier.
+     * @param paymentId the payment attempt identifier.
+     * @return the updated payment attempt.
+     * @throws PaymentNotFoundException     if the payment attempt does not exist or
+     *                                      does not belong to the specified order.
+     * @throws InvalidPaymentStateException if the payment attempt cannot transition
+     *                                      to the processing state.
+     */
     @Transactional
     public PaymentAttempt startProcessing(UUID orderId, UUID paymentId) {
         return updatePaymentAttemptState(orderId, paymentId, payment -> {
@@ -73,6 +113,19 @@ public class PaymentAttemptService {
         });
     }
 
+    /**
+     * Marks a payment attempt as successful and updates the associated order as
+     * paid.
+     *
+     * @param orderId     the order identifier.
+     * @param paymentId   the payment attempt identifier.
+     * @param providerRef the payment provider reference.
+     * @return the updated payment attempt.
+     * @throws PaymentNotFoundException     if the payment attempt does not exist or
+     *                                      does not belong to the specified order.
+     * @throws InvalidPaymentStateException if the payment attempt cannot transition
+     *                                      to the succeeded state.
+     */
     @Transactional
     public PaymentAttempt markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
         return updatePaymentAttemptState(orderId, paymentId, payment -> {
@@ -90,16 +143,51 @@ public class PaymentAttemptService {
         });
     }
 
+    /**
+     * Marks a payment attempt as failed.
+     *
+     * @param orderId      the order identifier.
+     * @param paymentId    the payment attempt identifier.
+     * @param code         the failure code reported by the payment provider.
+     * @param errorMessage the failure description reported by the payment provider.
+     * @return the updated payment attempt.
+     * @throws PaymentNotFoundException     if the payment attempt does not exist or
+     *                                      does not belong to the specified order.
+     * @throws InvalidPaymentStateException if the payment attempt cannot transition
+     *                                      to the failed state.
+     */
     @Transactional
     public PaymentAttempt markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
         return updatePaymentAttemptState(orderId, paymentId, payment -> payment.markAsFailed(code, errorMessage));
     }
 
+    /**
+     * Cancels a payment attempt.
+     *
+     * @param orderId   the order identifier.
+     * @param paymentId the payment attempt identifier.
+     * @return the updated payment attempt.
+     * @throws PaymentNotFoundException     if the payment attempt does not exist or
+     *                                      does not belong to the specified order.
+     * @throws InvalidPaymentStateException if the payment attempt cannot transition
+     *                                      to the cancelled state.
+     */
     @Transactional
     public PaymentAttempt markAsCancelled(UUID orderId, UUID paymentId) {
         return updatePaymentAttemptState(orderId, paymentId, PaymentAttempt::cancel);
     }
 
+    /**
+     * Applies the given state transition to a payment attempt and persists the
+     * changes.
+     *
+     * @param orderId   the order identifier.
+     * @param paymentId the payment attempt identifier.
+     * @param action    the state transition to apply.
+     * @return the updated payment attempt.
+     * @throws PaymentNotFoundException if the payment attempt does not exist or
+     *                                  does not belong to the specified order.
+     */
     private PaymentAttempt updatePaymentAttemptState(UUID orderId, UUID paymentId, Consumer<PaymentAttempt> action) {
         PaymentAttempt paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
