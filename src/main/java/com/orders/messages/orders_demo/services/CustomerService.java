@@ -20,27 +20,67 @@ public class CustomerService {
         this.customerRepository = customerRepository;
     }
 
+    /**
+     * Retrieves all registered customers.
+     *
+     * @return a list containing all customers.
+     */
     public List<Customer> getAllCustomers() {
         return customerRepository.findAll();
     }
 
+    /**
+     * Retrieves a customer by its identifier.
+     *
+     * @param id the customer identifier.
+     * @return the customer associated with the given identifier.
+     * @throws CustomerNotFoundException if the customer does not exist.
+     */
     public Customer getCustomer(UUID id) {
         return customerRepository.findById(id).orElseThrow(CustomerNotFoundException::new);
     }
 
+    /**
+     * Creates a new customer.
+     *
+     * @param createCustomerRequest the customer information used for creation.
+     * @return the persisted customer.
+     */
     public Customer createCustomer(CreateCustomerRequest createCustomerRequest) {
         return customerRepository.save(CustomerMapper.toEntity(createCustomerRequest));
     }
 
+    /**
+     * Deactivates the customer with the given identifier.
+     *
+     * @param id the customer identifier.
+     * @return the updated customer.
+     * @throws CustomerNotFoundException if the customer does not exist.
+     */
     public Customer deactivateCustomer(UUID id) {
         return updateCustomerState(id, Customer::deactivate);
     }
 
+    /**
+     * Activates the customer with the given identifier.
+     *
+     * @param id the customer identifier.
+     * @return the updated customer.
+     * @throws CustomerNotFoundException if the customer does not exist.
+     */
     public Customer activateCustomer(UUID id) {
         return updateCustomerState(id, Customer::activate);
     }
 
-    public Customer updateCustomerState(UUID id, Consumer<Customer> action) {
+    /**
+     * Applies the given state transition to a customer and persists the changes.
+     *
+     * @param id     the customer identifier.
+     * @param action the state transition to apply.
+     * @return the updated customer.
+     * @throws CustomerNotFoundException if the customer does not exist.
+     */
+    private Customer updateCustomerState(UUID id, Consumer<Customer> action) {
         Customer customer = customerRepository.findById(id).orElseThrow(CustomerNotFoundException::new);
 
         action.accept(customer);
