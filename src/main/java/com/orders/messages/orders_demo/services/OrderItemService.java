@@ -121,16 +121,52 @@ public class OrderItemService {
     }
 
     /**
-     * Changes the quantity of an existing order item.
+     * Changes the quantity of an existing order item and synchronizes the
+     * associated
+     * product stock.
+     *
+     * <p>
+     * If the requested quantity is greater than the current one, the additional
+     * units are deducted from the product stock. If it is lower, the difference is
+     * restored to the product stock.
+     * </p>
      *
      * @param orderId     the order identifier.
      * @param orderItemId the order item identifier.
-     * @param quantity    the new quantity.
+     * @param quantity    the new quantity for the order item.
      * @return the updated order item.
+     * @throws OrderNotFoundException         if the order does not exist.
+     * @throws OrderItemNotFoundException     if the order item doesn't exist or
+     *                                        doesn't belong to the specified order.
+     * @throws ProductNotFoundException       if the associated product doesn't
+     *                                        exist.
+     * @throws InvalidOrderItemStateException if the order can no longer be
+     *                                        modified.
+     * @throws InvalidProductException        if there isn't enough stock available
+     *                                        to satisfy the requested quantity.
      */
     @Transactional
     public OrderItem changeQuantity(UUID orderId, UUID orderItemId, Long quantity) {
-        return updateOrderItemState(orderId, orderItemId, orderItem -> orderItem.changeQuantity(quantity));
+        return updateOrderItemState(orderId, orderItemId, orderItem -> {
+            Product product = findProduct(orderItem.getSku());
+
+            Long initialQuantity = orderItem.getQuantity();
+
+            orderItem.changeQuantity(quantity);
+
+            long delta = quantity - initialQuantity;
+
+            if (delta > 0) {
+                product.decreaseStock(delta);
+
+                productRepository.save(product);
+            } else if (delta < 0) {
+                product.increaseStock(-delta);
+
+                productRepository.save(product);
+            }
+
+        });
     }
 
     @Transactional

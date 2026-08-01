@@ -6,7 +6,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -361,19 +360,117 @@ public class OrderItemServiceTest {
         Long newQuantity = 22L;
         Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItem orderItem = createOrderItem();
+        Product product = createProduct(true, 100L);
         order.addItem(orderItem);
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
         when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
 
         OrderItem result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
 
         assertEquals(orderItem.getOrder(), result.getOrder());
-        assertEquals(DEFAULT_SKU, result.getSku());
-        assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
-        assertEquals(DEFAULT_UNIT_PRICE, result.getUnitPrice());
         assertEquals(newQuantity, result.getQuantity());
+        verify(productRepository).findBySku(DEFAULT_SKU);
         verify(orderItemRepository).findById(orderItemId);
+        verify(productRepository).save(product);
         verify(orderItemRepository).save(result);
+    }
+
+    // 22 - 10 = 12 > 0 -> product stock should decrease have 100 - 12 = 88.
+    @Test
+    public void changeQuantity_WhenQuantityDifferenceIsPositive_ShouldDecreaseProductStock() {
+        Long newQuantity = 22L;
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        Product product = createProduct(true, 100L);
+        order.addItem(orderItem);
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
+
+        OrderItem result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
+
+        assertEquals(88L, product.getQuantity());
+        verify(productRepository).findBySku(DEFAULT_SKU);
+        verify(orderItemRepository).findById(orderItemId);
+        verify(productRepository).save(product);
+        verify(orderItemRepository).save(result);
+    }
+
+    // 2 - 10 = -8 < 0 -> product stock should increase by 8, have 100 + 8 = 108.
+    @Test
+    public void changeQuantity_WhenQuantityDifferenceIsNegative_ShouldIncreaseProductStock() {
+        Long newQuantity = 2L;
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        Product product = createProduct(true, 100L);
+        order.addItem(orderItem);
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
+
+        OrderItem result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
+
+        assertEquals(108L, product.getQuantity());
+        verify(productRepository).findBySku(DEFAULT_SKU);
+        verify(orderItemRepository).findById(orderItemId);
+        verify(productRepository).save(product);
+        verify(orderItemRepository).save(result);
+    }
+
+    // 10 - 10 = 0 -> product stock should not change, have 100.
+    @Test
+    public void changeQuantity_WhenQuantityDifferenceIsZero_ShouldNotChangeProductStock() {
+        Long newQuantity = 10L;
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        Product product = createProduct(true, 100L);
+        order.addItem(orderItem);
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(invoke -> invoke.getArgument(0));
+
+        OrderItem result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
+
+        assertEquals(100L, product.getQuantity());
+        verify(productRepository).findBySku(DEFAULT_SKU);
+        verify(orderItemRepository).findById(orderItemId);
+        verify(productRepository, never()).save(any(Product.class));
+        verify(orderItemRepository).save(result);
+
+    }
+
+    @Test
+    public void changeQuantity_WhenProductNotFound_ShouldThrowProductNotFoundException() {
+        Long newQuantity = 22L;
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        order.addItem(orderItem);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.empty());
+
+        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
+                () -> orderItemService.changeQuantity(orderId, orderItemId, newQuantity));
+
+        assertEquals("Product with SKU sku could not be found.", result.getMessage());
+        verify(orderItemRepository, never()).save(any(OrderItem.class));
+    }
+
+    @Test
+    public void changeQuantity_WhenInsufficientProductStock_ShouldThrowInvalidProductException() {
+        Long newQuantity = 200L;
+        Order order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItem orderItem = createOrderItem();
+        Product product = createProduct(true, 100L);
+        order.addItem(orderItem);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+
+        InsufficientStockException result = assertThrows(InsufficientStockException.class,
+                () -> orderItemService.changeQuantity(orderId, orderItemId, newQuantity));
+
+        assertEquals("Insufficient stock.", result.getMessage());
+        verify(orderItemRepository, never()).save(any(OrderItem.class));
     }
 
     @Test
@@ -410,9 +507,9 @@ public class OrderItemServiceTest {
         return new CreateOrderItemRequest(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
     }
 
-    private static Product createProduct(boolean isActive, Long quantity) {
+    private static Product createProduct(boolean isActive, Long stock) {
         return Product.builder()
-                .quantity(quantity)
+                .quantity(stock)
                 .name("product_name")
                 .sku(DEFAULT_SKU)
                 .description(DEFAULT_DESCRIPTION)
