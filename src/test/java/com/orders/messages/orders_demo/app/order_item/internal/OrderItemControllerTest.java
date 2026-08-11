@@ -26,8 +26,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.order_item.api.CreateOrderItemRequest;
@@ -422,13 +420,9 @@ public class OrderItemControllerTest {
         verify(orderItemService, never()).changeQuantity(any(), any(), any());
     }
 
-    private static CustomerEntity createCustomer(UUID customerId) {
-        return new CustomerEntity(customerId, "user_email", "user_name", CustomerStatus.ACTIVE);
-    }
-
     private static OrderEntity createPendingOrder(UUID customerId) {
         return OrderEntity.builder()
-                .customer(createCustomer(customerId))
+                .customerId(customerId)
                 .currency(Currency.MXN)
                 .build();
     }

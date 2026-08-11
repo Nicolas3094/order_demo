@@ -12,7 +12,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyExpiredException;
@@ -25,13 +24,9 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
@@ -44,9 +39,8 @@ public class OrderEntity {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "customer_id", nullable = false, foreignKey = @ForeignKey(name = "fk_order_customer"))
-    private CustomerEntity customer;
+    @Column(name = "customer_id", nullable = false)
+    private UUID customerId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -78,7 +72,7 @@ public class OrderEntity {
 
     private OrderEntity(Builder builder) {
         this.id = builder.id;
-        this.customer = builder.customer;
+        this.customerId = builder.customerId;
         this.currency = builder.currency;
         this.status = builder.status;
 
@@ -91,8 +85,8 @@ public class OrderEntity {
         return id;
     }
 
-    public CustomerEntity getCustomer() {
-        return customer;
+    public UUID getCustomerId() {
+        return customerId;
     }
 
     public Currency getCurrency() {
@@ -198,14 +192,14 @@ public class OrderEntity {
 
     public static final class Builder {
         private UUID id;
-        private CustomerEntity customer;
+        private UUID customerId;
         private Currency currency = Currency.MXN;
         private List<OrderItemEntity> items = new ArrayList<>();
         private OrderStatus status = OrderStatus.PENDING_PAYMENT;
 
         public OrderEntity build() {
-            if (customer == null) {
-                throw new IllegalStateException("Customer is required.");
+            if (customerId == null) {
+                throw new IllegalStateException("Customer ID is required.");
             }
 
             OrderEntity order = new OrderEntity(this);
@@ -222,8 +216,8 @@ public class OrderEntity {
             return this;
         }
 
-        public Builder customer(CustomerEntity customer) {
-            this.customer = customer;
+        public Builder customerId(UUID customerId) {
+            this.customerId = customerId;
             return this;
         }
 

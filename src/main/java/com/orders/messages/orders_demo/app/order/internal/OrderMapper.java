@@ -1,6 +1,7 @@
 package com.orders.messages.orders_demo.app.order.internal;
 
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
+import java.util.UUID;
+
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 
@@ -9,7 +10,7 @@ public final class OrderMapper {
     public static OrderResponse toResponse(OrderEntity order) {
         return OrderResponse.builder()
                 .setId(order.getId())
-                .customerId(order.getCustomer().getId())
+                .customerId(order.getCustomerId())
                 .amountTotal(order.getAmountTotal())
                 .status(order.getStatus())
                 .createdAt(order.getCreatedAt())
@@ -20,9 +21,9 @@ public final class OrderMapper {
                 .build();
     }
 
-    public static OrderEntity toEntity(CreateOrderRequest orderRequest, CustomerEntity customer) {
+    public static OrderEntity toEntity(CreateOrderRequest orderRequest, UUID customerId) {
         return OrderEntity.builder()
-                .customer(customer)
+                .customerId(customerId)
                 .currency(orderRequest.currency())
                 .build();
     }

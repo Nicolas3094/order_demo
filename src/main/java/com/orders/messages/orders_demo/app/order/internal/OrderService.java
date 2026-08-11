@@ -66,7 +66,7 @@ public class OrderService {
     public OrderResponse createOrder(CreateOrderRequest createOrderRequest) {
         CustomerEntity customer = findCustomerById(createOrderRequest.customerId());
 
-        OrderEntity order = OrderMapper.toEntity(createOrderRequest, customer);
+        OrderEntity order = OrderMapper.toEntity(createOrderRequest, customer.getId());
 
         return OrderMapper.toResponse(orderRepository.save(order));
     }

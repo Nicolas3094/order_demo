@@ -52,7 +52,7 @@ public class OrderServiceTest {
     public void setup() {
         fakeOrder = OrderEntity.builder()
                 .id(UUID.randomUUID())
-                .customer(new CustomerEntity("email", "name"))
+                .customerId(UUID.randomUUID())
                 .build();
         orderId = fakeOrder.getId();
     }
@@ -323,12 +323,11 @@ public class OrderServiceTest {
     }
 
     private OrderEntity createOrder(OrderStatus status) {
-        OrderEntity order = OrderEntity.builder()
+        return OrderEntity.builder()
                 .id(UUID.randomUUID())
-                .customer(new CustomerEntity("email", "name"))
+                .customerId(UUID.randomUUID())
                 .status(status)
                 .build();
-        return order;
     }
 
     private OrderItemEntity createOrderItem(ProductEntity product, Long quantity) {

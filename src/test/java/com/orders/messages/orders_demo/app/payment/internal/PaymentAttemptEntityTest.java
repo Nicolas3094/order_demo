@@ -14,17 +14,15 @@ import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 
 public class PaymentAttemptEntityTest {
 
     private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
-    private static final CustomerEntity DEFAULT_CUSTOMER = new CustomerEntity("email", "name");
     private static final OrderEntity DEFAULT_ORDER = OrderEntity.builder()
             .id(UUID.randomUUID())
-            .customer(DEFAULT_CUSTOMER)
+            .customerId(UUID.randomUUID())
             .currency(Currency.MXN)
             .build();
 

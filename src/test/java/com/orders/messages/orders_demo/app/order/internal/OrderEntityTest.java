@@ -2,6 +2,7 @@ package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -12,7 +13,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
 import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
@@ -25,7 +25,7 @@ public class OrderEntityTest {
     @BeforeEach
     public void setup() {
         fakeOrder = OrderEntity.builder()
-                .customer(new CustomerEntity("user_email", "user_name"))
+                .customerId(UUID.randomUUID())
                 .currency(Currency.MXN)
                 .build();
     }
@@ -259,7 +259,7 @@ public class OrderEntityTest {
                         .currency(Currency.MXN)
                         .build());
 
-        assertEquals("Customer is required.", result.getMessage());
+        assertEquals("Customer ID is required.", result.getMessage());
     }
 
     @Test
@@ -268,7 +268,7 @@ public class OrderEntityTest {
         NullPointerException result = assertThrows(
                 NullPointerException.class,
                 () -> OrderEntity.builder()
-                        .customer(new CustomerEntity("email", "name"))
+                        .customerId(UUID.randomUUID())
                         .currency(null)
                         .build());
 

@@ -20,7 +20,6 @@ import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
@@ -210,7 +209,7 @@ public class OrderInternalApiImplTest {
     private static OrderEntity createOrder() {
         return OrderEntity.builder()
                 .id(ORDER_ID)
-                .customer(new CustomerEntity("email", "name"))
+                .customerId(UUID.randomUUID())
                 .currency(Currency.MXN)
                 .addItem(
                         OrderItemEntity.builder()
@@ -225,7 +224,7 @@ public class OrderInternalApiImplTest {
     private static OrderEntity createOrderWithStatus(UUID orderId, OrderStatus status) {
         return OrderEntity.builder()
                 .id(orderId)
-                .customer(new CustomerEntity("email", "name"))
+                .customerId(UUID.randomUUID())
                 .currency(Currency.MXN)
                 .status(status)
                 .build();

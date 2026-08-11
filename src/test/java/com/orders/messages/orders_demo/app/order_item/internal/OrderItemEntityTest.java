@@ -1,6 +1,7 @@
 package com.orders.messages.orders_demo.app.order_item.internal;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -10,7 +11,6 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
 import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
@@ -158,7 +158,7 @@ public class OrderItemEntityTest {
 
     private static OrderEntity createOrderWithStatus(OrderStatus orderStatus) {
         return OrderEntity.builder()
-                .customer(new CustomerEntity("email", "name"))
+                .customerId(UUID.randomUUID())
                 .currency(Currency.MXN)
                 .status(orderStatus)
                 .build();
