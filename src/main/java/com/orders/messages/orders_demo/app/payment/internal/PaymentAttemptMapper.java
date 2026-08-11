@@ -1,6 +1,8 @@
 package com.orders.messages.orders_demo.app.payment.internal;
 
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
+import java.math.BigDecimal;
+import java.util.UUID;
+
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
 import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
 
@@ -21,10 +23,13 @@ public final class PaymentAttemptMapper {
                 .build();
     }
 
-    public static PaymentAttemptEntity toEntity(CreatePaymentAttemptRequest paymentAttemptRequest, OrderEntity order) {
-        return new PaymentAttemptEntity(
-                order,
-                paymentAttemptRequest.provider(),
-                paymentAttemptRequest.idempotencyKey());
+    public static PaymentAttemptEntity toEntity(CreatePaymentAttemptRequest paymentAttemptRequest, BigDecimal amount,
+            UUID orderId) {
+        return PaymentAttemptEntity.builder()
+                .orderId(orderId)
+                .amount(amount)
+                .provider(paymentAttemptRequest.provider())
+                .idempotencyKey(paymentAttemptRequest.idempotencyKey())
+                .build();
     }
 }

@@ -1,5 +1,7 @@
 package com.orders.messages.orders_demo.app.payment.internal;
 
+import java.math.BigDecimal;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,21 +23,28 @@ public class PaymentAttemptEntityTest {
     private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
     private static final CustomerEntity DEFAULT_CUSTOMER = new CustomerEntity("email", "name");
     private static final OrderEntity DEFAULT_ORDER = OrderEntity.builder()
+            .id(UUID.randomUUID())
             .customer(DEFAULT_CUSTOMER)
             .currency(Currency.MXN)
             .build();
 
     @Test
     public void paymentAttemptConstructor_ShouldSetStatusAsCreated() {
-        PaymentAttemptEntity result = new PaymentAttemptEntity(DEFAULT_ORDER, PaymentProvider.NONE,
-                DEFAULT_IDEMPOTENCY_KEY);
+        PaymentAttemptEntity result = PaymentAttemptEntity.builder()
+                .orderId(DEFAULT_ORDER.getId())
+                .provider(PaymentProvider.NONE)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
+                .build();
         assertEquals(PaymentStatus.CREATED, result.getStatus());
     }
 
     @Test
     public void startProcessing_WhenStatusIsCreated_ShouldSetStatusAsProcessing() {
-        PaymentAttemptEntity paymentAttempt = new PaymentAttemptEntity(
-                DEFAULT_ORDER, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
+        PaymentAttemptEntity paymentAttempt = PaymentAttemptEntity.builder()
+                .orderId(DEFAULT_ORDER.getId())
+                .provider(PaymentProvider.NONE)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
+                .build();
 
         paymentAttempt.startProcessing();
 
@@ -43,7 +52,7 @@ public class PaymentAttemptEntityTest {
     }
 
     @Test
-    public void startProcessing_WhenStatusIsProcessing_ShouldThrowInvalidPaymentException() {
+    public void startProcessing_WhenStatusIsProcessing_ShouldThrowInvalidPaymentStateException() {
         PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(PaymentStatus.PROCESSING);
 
         InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
@@ -103,7 +112,7 @@ public class PaymentAttemptEntityTest {
 
     @ParameterizedTest
     @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
-    public void markAsFailedWhenStatusIsOtherThanProcessing_ShouldThrowInvalidPaymentExceptionWithMessage(
+    public void markAsFailed_WhenStatusIsOtherThanProcessing_ShouldThrowInvalidPaymentStateException(
             PaymentStatus status) {
         Integer statusCode = 500;
         String message = "Server error";
@@ -127,7 +136,7 @@ public class PaymentAttemptEntityTest {
 
     @ParameterizedTest
     @MethodSource("invalidPaymentStateExceptionWhenPaymentIsCancelled")
-    public void cancel_WhenStatusIsOtherThanreatedOrProcessing_ShouldThrowInvalidPaymentExceptionWithMessage(
+    public void cancel_WhenStatusIsOtherThanCreatedOrProcessing_ShouldThrowInvalidPaymentStateException(
             PaymentStatus status, String message) {
         PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(status);
 
@@ -136,9 +145,57 @@ public class PaymentAttemptEntityTest {
         assertEquals(message, result.getMessage());
     }
 
+    @Test
+    public void builder_WhenAllPropertiesAreProvided_ShouldSetAllProperties() {
+        UUID id = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        String providerRef = "provider_ref";
+        String failureMessage = "Server error";
+        Integer failureCode = 500;
+        String idempotencyKey = "custom_key";
+        PaymentStatus status = PaymentStatus.FAILED;
+
+        PaymentAttemptEntity paymentAttempt = PaymentAttemptEntity.builder()
+                .id(id)
+                .orderId(orderId)
+                .amount(new BigDecimal("150.50"))
+                .provider(PaymentProvider.NONE)
+                .idempotencyKey(idempotencyKey)
+                .status(status)
+                .providerRef(providerRef)
+                .failureMessage(failureMessage)
+                .failureCode(failureCode)
+                .build();
+
+        assertEquals(id, paymentAttempt.getId());
+        assertEquals(orderId, paymentAttempt.getOrderId());
+        assertEquals(new BigDecimal("150.50"), paymentAttempt.getAmount());
+        assertEquals(PaymentProvider.NONE, paymentAttempt.getProvider());
+        assertEquals(idempotencyKey, paymentAttempt.getIdempotencyKey());
+        assertEquals(status, paymentAttempt.getStatus());
+        assertEquals(providerRef, paymentAttempt.getProviderRef());
+        assertEquals(failureMessage, paymentAttempt.getFailureMessage());
+        assertEquals(failureCode, paymentAttempt.getFailureCode());
+    }
+
+    @Test
+    public void builder_WhenOptionalPropertiesAreNotProvided_ShouldSetDefaultValues() {
+        PaymentAttemptEntity paymentAttempt = PaymentAttemptEntity.builder()
+                .orderId(DEFAULT_ORDER.getId())
+                .build();
+
+        assertEquals(BigDecimal.ZERO, paymentAttempt.getAmount());
+        assertEquals(PaymentProvider.NONE, paymentAttempt.getProvider());
+        assertEquals(PaymentStatus.CREATED, paymentAttempt.getStatus());
+    }
+
     private static PaymentAttemptEntity createPaymentWithStatus(PaymentStatus status) {
-        return new PaymentAttemptEntity(
-                DEFAULT_ORDER, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY, status);
+        return PaymentAttemptEntity.builder()
+                .orderId(DEFAULT_ORDER.getId())
+                .provider(PaymentProvider.NONE)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
+                .status(status)
+                .build();
     }
 
     @SuppressWarnings("unused")

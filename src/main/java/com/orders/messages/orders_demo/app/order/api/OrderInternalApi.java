@@ -1,6 +1,6 @@
 package com.orders.messages.orders_demo.app.order.api;
 
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
+import java.util.UUID;
 
 /**
  * Internal API for order management.
@@ -8,19 +8,46 @@ import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 public interface OrderInternalApi {
 
     /**
-     * Retrieves an order by its identifier.
+     * Validates that the order with the specified identifier exists.
      *
-     * @param id the order identifier.
-     * @return the requested order.
+     * @param orderId the order identifier.
+     * @throws OrderNotFoundException if the order does not exist.
      */
-    OrderEntity getOrderById(java.util.UUID id);
+    void validateOrderExists(UUID orderId);
 
     /**
-     * Persists the provided order entity.
+     * Retrieves the order data for the specified order identifier.
      *
-     * @param order the order entity to be saved.
-     * @return the persisted order entity.
+     * @param orderId the order identifier.
+     * @return the order data.
+     * @throws OrderNotFoundException if the order does not exist.
      */
-    OrderEntity saveOrder(OrderEntity order);
+    void validateCanReceivePayment(UUID id);
+
+    /**
+     * Retrieves the order response for the specified order identifier.
+     *
+     * @param id the order identifier.
+     * @return the order response.
+     * @throws OrderNotFoundException if the order does not exist.
+     */
+    OrderResponse getOrderById(UUID id);
+
+    /**
+     * Marks the order with the specified identifier as paid.
+     *
+     * @param id the order identifier.
+     * @throws OrderNotFoundException if the order does not exist.
+     */
+    void markAsPaid(UUID id);
+
+    /**
+     * Retrieves the order data for payment processing.
+     *
+     * @param orderId the order identifier.
+     * @return the order data.
+     * @throws OrderNotFoundException if the order does not exist.
+     */
+    OrderData getOrderDataForPayment(UUID orderId);
 
 }

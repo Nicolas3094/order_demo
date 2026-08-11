@@ -7,8 +7,8 @@ import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
-import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
+import com.orders.messages.orders_demo.app.order.api.OrderData;
+import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
@@ -20,11 +20,12 @@ import jakarta.transaction.Transactional;
 public class PaymentAttemptService {
 
     private final PaymentAttemptRepository paymentAttemptRepository;
-    private final OrderRepository orderRepository;
+    private final OrderInternalApi orderInternalApi;
 
-    public PaymentAttemptService(OrderRepository orderRepository, PaymentAttemptRepository paymentAttemptRepository) {
-        this.orderRepository = orderRepository;
+    public PaymentAttemptService(PaymentAttemptRepository paymentAttemptRepository,
+            OrderInternalApi orderInternalApi) {
         this.paymentAttemptRepository = paymentAttemptRepository;
+        this.orderInternalApi = orderInternalApi;
     }
 
     /**
@@ -35,7 +36,9 @@ public class PaymentAttemptService {
      * @throws OrderNotFoundException if the order does not exist.
      */
     public List<PaymentAttemptEntity> getAllPayments(UUID orderId) {
-        return paymentAttemptRepository.findByOrderId(findOrder(orderId).getId());
+        orderInternalApi.validateOrderExists(orderId);
+
+        return paymentAttemptRepository.findByOrderId(orderId);
     }
 
     /**
@@ -70,11 +73,7 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptEntity createPaymentAttempt(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
-        OrderEntity order = findOrder(orderId);
-
-        if (!order.canAcceptPayments()) {
-            throw new InvalidPaymentStateException("Only pending orders can receive payment attempts.");
-        }
+        OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
 
         Optional<PaymentAttemptEntity> paymentOpt = paymentAttemptRepository
                 .findByIdempotencyKey(paymentRequest.idempotencyKey());
@@ -83,7 +82,11 @@ public class PaymentAttemptService {
             return paymentOpt.get();
         }
 
-        return paymentAttemptRepository.save(PaymentAttemptMapper.toEntity(paymentRequest, order));
+        return paymentAttemptRepository
+                .save(PaymentAttemptMapper.toEntity(
+                        paymentRequest,
+                        orderData.amountTotal(),
+                        orderId));
     }
 
     /**
@@ -100,11 +103,7 @@ public class PaymentAttemptService {
     @Transactional
     public PaymentAttemptEntity startProcessing(UUID orderId, UUID paymentId) {
         return updatePaymentAttemptState(orderId, paymentId, payment -> {
-            OrderEntity order = payment.getOrder();
-
-            if (!order.canAcceptPayments()) {
-                throw new InvalidPaymentStateException("Only pending orders can be processed.");
-            }
+            orderInternalApi.validateCanReceivePayment(orderId);
 
             payment.startProcessing();
         });
@@ -125,19 +124,12 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptEntity markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
-        return updatePaymentAttemptState(orderId, paymentId, payment -> {
-            OrderEntity order = payment.getOrder();
+        return updatePaymentAttemptState(orderId, paymentId,
+                payment -> {
+                    payment.markAsSucceeded(providerRef);
 
-            if (!order.canAcceptPayments()) {
-                throw new InvalidPaymentStateException("Only pending orders can be marked as paid.");
-            }
-
-            payment.markAsSucceeded(providerRef);
-
-            order.markAsPaid();
-
-            orderRepository.save(order);
-        });
+                    orderInternalApi.markAsPaid(orderId);
+                });
     }
 
     /**
@@ -206,23 +198,11 @@ public class PaymentAttemptService {
         PaymentAttemptEntity paymentAttempt = paymentAttemptRepository.findById(paymentId)
                 .orElseThrow(PaymentNotFoundException::new);
 
-        if (!orderId.equals(paymentAttempt.getOrder().getId())) {
+        if (!orderId.equals(paymentAttempt.getOrderId())) {
             throw new PaymentNotFoundException();
         }
 
         return paymentAttempt;
-    }
-
-    /**
-     * Finds the Order if exits, otherwise throws an
-     * {@link OrderNotFoundException}.
-     * 
-     * @param orderId The Order ID.
-     * @return A complete Order object.
-     */
-    private OrderEntity findOrder(UUID orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(OrderNotFoundException::new);
     }
 
 }

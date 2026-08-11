@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.app.payment.internal;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,15 +20,16 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
-import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
-import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
+import com.orders.messages.orders_demo.app.order.api.OrderData;
+import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
@@ -39,13 +41,14 @@ public class PaymentAttemptServiceTest {
     @Mock
     private PaymentAttemptRepository paymentAttemptRepository;
     @Mock
-    private OrderRepository orderRepository;
+    private OrderInternalApi orderInternalApi;
 
     @InjectMocks
     private PaymentAttemptService paymentAttemptService;
 
     private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
     private static final String DEFAULT_PROVIDER_REF = "providerRef";
+    private static final BigDecimal DEFAULT_AMOUNT_TOTAL = BigDecimal.valueOf(100.00);
 
     private UUID orderId;
     private UUID paymentId;
@@ -57,10 +60,9 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void getAllPayments_WhenOrderExists_ReturnsPaymentAttempts() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity payment1 = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
-        PaymentAttemptEntity payment2 = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        PaymentAttemptEntity payment1 = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        PaymentAttemptEntity payment2 = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        doNothing().when(orderInternalApi).validateOrderExists(orderId);
         when(paymentAttemptRepository.findByOrderId(orderId)).thenReturn(List.of(payment1, payment2));
 
         List<PaymentAttemptEntity> result = paymentAttemptService.getAllPayments(orderId);
@@ -68,20 +70,20 @@ public class PaymentAttemptServiceTest {
         assertEquals(2, result.size());
         assertEquals(payment1, result.get(0));
         assertEquals(payment2, result.get(1));
-        verify(orderRepository).findById(orderId);
+        verify(orderInternalApi).validateOrderExists(orderId);
         verify(paymentAttemptRepository).findByOrderId(orderId);
     }
 
     @Test
     public void getAllPayments_WhenOrderDoesNotExist_ThrowsOrderNotFoundException() {
-        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+        doThrow(new OrderNotFoundException()).when(orderInternalApi).validateOrderExists(orderId);
 
         OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
                 () -> paymentAttemptService.getAllPayments(orderId));
 
         assertEquals("Order could not be found.", result.getMessage());
 
-        verify(orderRepository).findById(orderId);
+        verify(orderInternalApi).validateOrderExists(orderId);
         verify(paymentAttemptRepository, never()).findByOrderId(orderId);
     }
 
@@ -93,8 +95,7 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void getPaymentAttempt_WhenPaymentExists_ReturnsPayment() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
+        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
         paymentId = payment.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
@@ -115,8 +116,7 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void getPaymentAttempt_WhenPaymentOrderIdNotEqualToOrderId_ThrowsPaymentNotFoundException() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
+        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
         UUID otherOrderId = UUID.randomUUID();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
@@ -137,14 +137,12 @@ public class PaymentAttemptServiceTest {
     public void createPaymentAttempt_WhenOrderExistsAndIdempotencyIsUnique_ShouldSavePayment() {
         CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(
                 PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-        OrderEntity order = createOrderWithId(orderId);
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
-        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
+        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, DEFAULT_AMOUNT_TOTAL));
         mockPaymentRepositorySave();
 
         PaymentAttemptEntity result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
 
-        assertEquals(order, result.getOrder());
+        assertEquals(orderId, result.getOrderId());
         assertEquals(DEFAULT_IDEMPOTENCY_KEY, result.getIdempotencyKey());
         assertEquals(PaymentStatus.CREATED, result.getStatus());
         assertEquals(PaymentProvider.NONE, result.getProvider());
@@ -155,7 +153,7 @@ public class PaymentAttemptServiceTest {
     public void createPaymentAttempt_WhenOrderDoesNotExists_ShouldThrowOrderNotFoundException() {
         CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(
                 PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-        when(orderRepository.findById(orderId)).thenReturn(Optional.empty());
+        when(orderInternalApi.getOrderDataForPayment(orderId)).thenThrow(new OrderNotFoundException());
 
         OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
                 () -> paymentAttemptService.createPaymentAttempt(orderId, paymentRequest));
@@ -167,18 +165,18 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void createPaymentAttempt_WhenIdempotencyKeyExists_ShouldReturnExistingPayment() {
-        CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(
-                PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity expectedPayment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
-        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.NONE,
+                DEFAULT_IDEMPOTENCY_KEY);
+        PaymentAttemptEntity expectedPayment = createPaymentAttemptWithStatusAndOrder(orderId,
+                PaymentStatus.PROCESSING);
+        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, DEFAULT_AMOUNT_TOTAL));
         when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY))
                 .thenReturn(Optional.of(expectedPayment));
 
         PaymentAttemptEntity result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
 
         assertEquals(expectedPayment, result);
-        verify(orderRepository).findById(orderId);
+        verify(orderInternalApi).getOrderDataForPayment(orderId);
         verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
     }
@@ -191,8 +189,7 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void startProcessing_WhenPaymentIsFoundAndOrderCanAcceptPayments_ShouldSavePaymentAsProcessing() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
         mockPaymentRepositorySave();
@@ -217,8 +214,7 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void startProcessing_WhenPaymentOrderIdNotEqualToOrderId_ThrowsPaymentNotFoundException() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
+        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
         UUID otherOrderId = UUID.randomUUID();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
@@ -228,26 +224,25 @@ public class PaymentAttemptServiceTest {
         assertEquals("Payment attempt not found.", result.getMessage());
     }
 
-    @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, mode = Mode.EXCLUDE, names = { "PENDING_PAYMENT" })
-    public void startProcessing_WhenPaymentIsFoundAndOrderCannotAcceptPayments_ShouldThrowInvalidPaymentStateException(
-            OrderStatus orderStatus) {
-        OrderEntity order = createOrderWithStatusAndId(orderId, orderStatus);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
+    @Test
+    void startProcessing_WhenOrderCannotAcceptPayments_ShouldThrowInvalidPaymentStateException() {
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(
+                orderId, PaymentStatus.CREATED);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
+        doThrow(new InvalidOrderStateException("This order cannot receive payment attempts."))
+                .when(orderInternalApi).validateCanReceivePayment(orderId);
 
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
+        InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> paymentAttemptService.startProcessing(orderId, paymentId));
 
-        assertEquals("Only pending orders can be processed.", result.getMessage());
+        assertEquals("This order cannot receive payment attempts.", result.getMessage());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
     }
 
     @Test
     public void startProcessing_WhenPaymentIsAlreadyProcessing_ShouldThrowInvalidPaymentStateException() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
 
@@ -262,8 +257,7 @@ public class PaymentAttemptServiceTest {
     @EnumSource(value = PaymentStatus.class, names = { "SUCCEEDED", "FAILED", "CANCELLED" })
     public void startProcessing_WhenPaymentIsInTerminalState_ShouldThrowInvalidPaymentStateException(
             PaymentStatus paymentStatus) {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, paymentStatus);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
 
@@ -282,21 +276,18 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void markAsSucceeded_WhenProcessingPaymentIsFoundAndOrderCanAcceptPayments_ShouldCompleteOrderAndPaymentAndGetProviderRef() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
         mockPaymentRepositorySave();
-        when(orderRepository.save(any(OrderEntity.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        doNothing().when(orderInternalApi).markAsPaid(orderId);
 
         PaymentAttemptEntity result = paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF);
 
         assertEquals(PaymentStatus.SUCCEEDED, result.getStatus());
         assertEquals(DEFAULT_PROVIDER_REF, result.getProviderRef());
-        assertEquals(OrderStatus.PAID, result.getOrder().getStatus());
         verify(paymentAttemptRepository).save(result);
-        verify(orderRepository).save(result.getOrder());
+        verify(orderInternalApi).markAsPaid(orderId);
     }
 
     @Test
@@ -308,13 +299,12 @@ public class PaymentAttemptServiceTest {
 
         assertEquals("Payment attempt not found.", result.getMessage());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(orderRepository, never()).save(any(OrderEntity.class));
+        verify(orderInternalApi, never()).markAsPaid(orderId);
     }
 
     @Test
     public void markAsSucceeded__WhenPaymentOrderIdNotEqualToOrderId_ThrowsPaymentNotFoundException() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.CREATED);
+        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
         UUID otherOrderId = UUID.randomUUID();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
@@ -324,29 +314,27 @@ public class PaymentAttemptServiceTest {
         assertEquals("Payment attempt not found.", result.getMessage());
     }
 
-    @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, mode = Mode.EXCLUDE, names = { "PENDING_PAYMENT" })
-    public void markAsSucceeded_WhenOrderCannotAcceptPayments_ShouldThrowInvalidPaymentStateException(
-            OrderStatus orderStatus) {
-        OrderEntity order = createOrderWithStatusAndId(orderId, orderStatus);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
+    @Test
+    public void markAsSucceeded_WhenOrderCannotAcceptPayments_ShouldThrowInvalidPaymentStateException() {
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
+        doThrow(new InvalidOrderStateException("Only pending orders can be marked as paid."))
+                .when(orderInternalApi).markAsPaid(orderId);
 
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
+        InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
 
         assertEquals("Only pending orders can be marked as paid.", result.getMessage());
+        verify(orderInternalApi).markAsPaid(orderId);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(orderRepository, never()).save(any(OrderEntity.class));
     }
 
     @ParameterizedTest
     @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
     public void markAsSucceeded_WhenNonProcessingPaymentIsFoundAndOrderCanAcceptPayments_ShouldThrowInvalidPaymentStateException(
             PaymentStatus paymentStatus) {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, paymentStatus);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
 
         InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
@@ -354,7 +342,7 @@ public class PaymentAttemptServiceTest {
 
         assertEquals("Only processing payments can be marked as succeeded.", result.getMessage());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(orderRepository, never()).save(any(OrderEntity.class));
+        verify(orderInternalApi, never()).markAsPaid(any(UUID.class));
     }
 
     /*
@@ -365,8 +353,7 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void markAsFailed_WhenProcessingPaymentIsFound_ShouldSaveErrorCodeAndMessage() {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
         mockPaymentRepositorySave();
@@ -393,8 +380,7 @@ public class PaymentAttemptServiceTest {
     @Test
     public void markAsFailed_WhenPaymentOrderIdNotEqualToOrderId_ThrowsPaymentNotFoundException() {
         UUID otherOrderId = UUID.randomUUID();
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
+        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
         PaymentNotFoundException result = assertThrows(PaymentNotFoundException.class,
@@ -407,8 +393,7 @@ public class PaymentAttemptServiceTest {
     @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
     public void markAsFailed_WhenPaymentIsNotProcessing_ShouldThrowInvalidPaymentStateException(
             PaymentStatus paymentStatus) {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, paymentStatus);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
 
@@ -429,8 +414,7 @@ public class PaymentAttemptServiceTest {
     @EnumSource(value = PaymentStatus.class, names = { "CREATED", "PROCESSING" })
     public void markAsCancelled_WhenProcessingOrCreatedPaymentIsFound_ShouldSavePaymentAsCancelled(
             PaymentStatus paymentStatus) {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, paymentStatus);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
         mockPaymentRepositorySave();
@@ -455,8 +439,7 @@ public class PaymentAttemptServiceTest {
     @Test
     public void markAsFailed__WhenPaymentOrderIdNotEqualToOrderId_ThrowsPaymentNotFoundException() {
         UUID otherOrderId = UUID.randomUUID();
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(order, PaymentStatus.PROCESSING);
+        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
         PaymentNotFoundException result = assertThrows(PaymentNotFoundException.class,
@@ -469,8 +452,7 @@ public class PaymentAttemptServiceTest {
     @MethodSource("invalidPaymentStateExceptionWhenPaymentIsCancelled")
     public void markAsFailed_WhenPaymentIsSucceeded_ShouldThrowInvalidPaymentStateException(
             PaymentStatus paymentStatus, String message) {
-        OrderEntity order = createOrderWithId(orderId);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(order, paymentStatus);
+        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
 
@@ -485,26 +467,13 @@ public class PaymentAttemptServiceTest {
         when(paymentAttemptRepository.save(any(PaymentAttemptEntity.class))).thenAnswer(i -> i.getArgument(0));
     }
 
-    private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(OrderEntity order,
+    private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(UUID orderId,
             PaymentStatus status) {
-        return new PaymentAttemptEntity(order, PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY, status);
-    }
-
-    private static OrderEntity createOrderWithStatusAndId(UUID orderId, OrderStatus status) {
-        return OrderEntity.builder()
-                .id(orderId)
-                .customer(new CustomerEntity("email", "name"))
+        return PaymentAttemptEntity.builder()
+                .orderId(orderId)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
                 .status(status)
                 .build();
-
-    }
-
-    private static OrderEntity createOrderWithId(UUID id) {
-        return OrderEntity.builder()
-                .id(id)
-                .customer(new CustomerEntity("email", "name"))
-                .build();
-
     }
 
     @SuppressWarnings("unused")
