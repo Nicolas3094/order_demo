@@ -16,6 +16,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import org.mockito.InjectMocks;
@@ -32,6 +33,7 @@ import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
+import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
 
@@ -52,10 +54,12 @@ public class PaymentAttemptServiceTest {
 
     private UUID orderId;
     private UUID paymentId;
+    private ArgumentCaptor<PaymentAttemptEntity> paymentCaptor;
 
     @BeforeEach
     public void setup() {
         orderId = UUID.randomUUID();
+        paymentCaptor = ArgumentCaptor.forClass(PaymentAttemptEntity.class);
     }
 
     @Test
@@ -65,11 +69,15 @@ public class PaymentAttemptServiceTest {
         doNothing().when(orderInternalApi).validateOrderExists(orderId);
         when(paymentAttemptRepository.findByOrderId(orderId)).thenReturn(List.of(payment1, payment2));
 
-        List<PaymentAttemptEntity> result = paymentAttemptService.getAllPayments(orderId);
+        List<PaymentAttemptResponse> result = paymentAttemptService.getAllPayments(orderId);
 
         assertEquals(2, result.size());
-        assertEquals(payment1, result.get(0));
-        assertEquals(payment2, result.get(1));
+        assertEquals(payment1.getId(), result.get(0).id());
+        assertEquals(payment2.getId(), result.get(1).id());
+        assertEquals(payment1.getStatus(), result.get(0).status());
+        assertEquals(payment2.getStatus(), result.get(1).status());
+        assertEquals(payment1.getIdempotencyKey(), result.get(0).idempotencyKey());
+        assertEquals(payment2.getIdempotencyKey(), result.get(1).idempotencyKey());
         verify(orderInternalApi).validateOrderExists(orderId);
         verify(paymentAttemptRepository).findByOrderId(orderId);
     }
@@ -99,9 +107,9 @@ public class PaymentAttemptServiceTest {
         paymentId = payment.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
-        PaymentAttemptEntity result = paymentAttemptService.getPaymentAttempt(orderId, paymentId);
+        PaymentAttemptResponse result = paymentAttemptService.getPaymentAttempt(orderId, paymentId);
 
-        assertEquals(paymentId, result.getId());
+        assertEquals(paymentId, result.id());
         verify(paymentAttemptRepository).findById(paymentId);
     }
 
@@ -140,13 +148,14 @@ public class PaymentAttemptServiceTest {
         when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, DEFAULT_AMOUNT_TOTAL));
         mockPaymentRepositorySave();
 
-        PaymentAttemptEntity result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
+        PaymentAttemptResponse result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
 
-        assertEquals(orderId, result.getOrderId());
-        assertEquals(DEFAULT_IDEMPOTENCY_KEY, result.getIdempotencyKey());
-        assertEquals(PaymentStatus.CREATED, result.getStatus());
-        assertEquals(PaymentProvider.NONE, result.getProvider());
-        verify(paymentAttemptRepository).save(result);
+        verify(paymentAttemptRepository).save(paymentCaptor.capture());
+        assertEquals(paymentCaptor.getValue().getId(), result.id());
+        assertEquals(orderId, result.orderId());
+        assertEquals(DEFAULT_IDEMPOTENCY_KEY, result.idempotencyKey());
+        assertEquals(PaymentStatus.CREATED, result.status());
+        assertEquals(PaymentProvider.NONE, result.provider());
     }
 
     @Test
@@ -173,9 +182,9 @@ public class PaymentAttemptServiceTest {
         when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY))
                 .thenReturn(Optional.of(expectedPayment));
 
-        PaymentAttemptEntity result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
+        PaymentAttemptResponse result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
 
-        assertEquals(expectedPayment, result);
+        assertEquals(expectedPayment.getId(), result.id());
         verify(orderInternalApi).getOrderDataForPayment(orderId);
         verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
@@ -194,10 +203,12 @@ public class PaymentAttemptServiceTest {
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
         mockPaymentRepositorySave();
 
-        PaymentAttemptEntity result = paymentAttemptService.startProcessing(orderId, paymentId);
+        PaymentAttemptResponse result = paymentAttemptService.startProcessing(orderId, paymentId);
 
-        assertEquals(PaymentStatus.PROCESSING, result.getStatus());
-        verify(paymentAttemptRepository).save(result);
+        verify(paymentAttemptRepository).save(paymentCaptor.capture());
+        verify(orderInternalApi).validateCanReceivePayment(orderId);
+        assertEquals(paymentCaptor.getValue().getId(), result.id());
+        assertEquals(PaymentStatus.PROCESSING, result.status());
     }
 
     @Test
@@ -282,12 +293,13 @@ public class PaymentAttemptServiceTest {
         mockPaymentRepositorySave();
         doNothing().when(orderInternalApi).markAsPaid(orderId);
 
-        PaymentAttemptEntity result = paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF);
+        PaymentAttemptResponse result = paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF);
 
-        assertEquals(PaymentStatus.SUCCEEDED, result.getStatus());
-        assertEquals(DEFAULT_PROVIDER_REF, result.getProviderRef());
-        verify(paymentAttemptRepository).save(result);
         verify(orderInternalApi).markAsPaid(orderId);
+        verify(paymentAttemptRepository).save(paymentCaptor.capture());
+        assertEquals(paymentCaptor.getValue().getId(), result.id());
+        assertEquals(PaymentStatus.SUCCEEDED, result.status());
+        assertEquals(DEFAULT_PROVIDER_REF, result.providerRef());
     }
 
     @Test
@@ -358,12 +370,13 @@ public class PaymentAttemptServiceTest {
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
         mockPaymentRepositorySave();
 
-        PaymentAttemptEntity result = paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Server error");
+        PaymentAttemptResponse result = paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Server error");
 
-        assertEquals(PaymentStatus.FAILED, result.getStatus());
-        assertEquals(500, result.getFailureCode());
-        assertEquals("Server error", result.getFailureMessage());
-        verify(paymentAttemptRepository).save(result);
+        verify(paymentAttemptRepository).save(paymentCaptor.capture());
+        assertEquals(paymentCaptor.getValue().getId(), result.id());
+        assertEquals(PaymentStatus.FAILED, result.status());
+        assertEquals(500, result.failureCode());
+        assertEquals("Server error", result.failureMessage());
     }
 
     @Test
@@ -419,10 +432,11 @@ public class PaymentAttemptServiceTest {
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
         mockPaymentRepositorySave();
 
-        PaymentAttemptEntity result = paymentAttemptService.markAsCancelled(orderId, paymentId);
+        PaymentAttemptResponse result = paymentAttemptService.markAsCancelled(orderId, paymentId);
 
-        assertEquals(PaymentStatus.CANCELLED, result.getStatus());
-        verify(paymentAttemptRepository).save(result);
+        verify(paymentAttemptRepository).save(paymentCaptor.capture());
+        assertEquals(paymentCaptor.getValue().getId(), result.id());
+        assertEquals(PaymentStatus.CANCELLED, result.status());
     }
 
     @Test
@@ -470,6 +484,7 @@ public class PaymentAttemptServiceTest {
     private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(UUID orderId,
             PaymentStatus status) {
         return PaymentAttemptEntity.builder()
+                .id(UUID.randomUUID())
                 .orderId(orderId)
                 .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
                 .status(status)

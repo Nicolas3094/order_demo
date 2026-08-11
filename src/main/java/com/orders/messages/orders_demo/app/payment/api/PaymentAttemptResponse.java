@@ -9,6 +9,7 @@ import com.orders.messages.orders_demo.app.payment.internal.PaymentStatus;
 
 public record PaymentAttemptResponse(
         UUID id,
+        UUID orderId,
         PaymentProvider provider,
         BigDecimal amount,
         PaymentStatus status,
@@ -25,6 +26,7 @@ public record PaymentAttemptResponse(
 
     public static final class Builder {
         private UUID id;
+        private UUID orderId;
         private PaymentProvider provider;
         private BigDecimal amount;
         private PaymentStatus status;
@@ -36,56 +38,62 @@ public record PaymentAttemptResponse(
         private Instant updatedAt;
 
         public PaymentAttemptResponse build() {
-            return new PaymentAttemptResponse(id, provider, amount, status, idempotencyKey, providerRef, failureMessage,
+            return new PaymentAttemptResponse(id, orderId, provider, amount, status, idempotencyKey, providerRef,
+                    failureMessage,
                     failureCode, createdAt, updatedAt);
         }
 
-        public Builder setId(UUID id) {
+        public Builder id(UUID id) {
             this.id = id;
             return this;
         }
 
-        public Builder setProvider(PaymentProvider provider) {
+        public Builder orderId(UUID orderId) {
+            this.orderId = orderId;
+            return this;
+        }
+
+        public Builder provider(PaymentProvider provider) {
             this.provider = provider;
             return this;
         }
 
-        public Builder setAmount(BigDecimal amount) {
+        public Builder amount(BigDecimal amount) {
             this.amount = amount;
             return this;
         }
 
-        public Builder setStatus(PaymentStatus status) {
+        public Builder status(PaymentStatus status) {
             this.status = status;
             return this;
         }
 
-        public Builder setIdempotencyKey(String idempotencyKey) {
+        public Builder idempotencyKey(String idempotencyKey) {
             this.idempotencyKey = idempotencyKey;
             return this;
         }
 
-        public Builder setProviderRef(String providerRef) {
+        public Builder providerRef(String providerRef) {
             this.providerRef = providerRef;
             return this;
         }
 
-        public Builder setFailureMessage(String failureMessage) {
+        public Builder failureMessage(String failureMessage) {
             this.failureMessage = failureMessage;
             return this;
         }
 
-        public Builder setFailureCode(Integer failureCode) {
+        public Builder failureCode(Integer failureCode) {
             this.failureCode = failureCode;
             return this;
         }
 
-        public Builder setCreatedAt(Instant createdAt) {
+        public Builder createdAt(Instant createdAt) {
             this.createdAt = createdAt;
             return this;
         }
 
-        public Builder setUpdatedAt(Instant updatedAt) {
+        public Builder updatedAt(Instant updatedAt) {
             this.updatedAt = updatedAt;
             return this;
         }

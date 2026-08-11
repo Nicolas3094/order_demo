@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
+import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
 import com.orders.messages.orders_demo.app.payment.api.PaymentFailedRequest;
 import com.orders.messages.orders_demo.app.payment.api.PaymentSucceededRequest;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
@@ -50,8 +51,8 @@ public class PaymentAttemptControllerTest {
 
     @Test
     public void getAllPayments_ShouldReturn200() throws Exception {
-        PaymentAttemptEntity paymentAttempt1 = createPaymentAttempt(paymentId, orderId);
-        PaymentAttemptEntity paymentAttempt2 = createPaymentAttempt(paymentId, orderId);
+        PaymentAttemptResponse paymentAttempt1 = createPaymentAttempt(paymentId, orderId);
+        PaymentAttemptResponse paymentAttempt2 = createPaymentAttempt(paymentId, orderId);
         when(paymentAttemptService.getAllPayments(orderId))
                 .thenReturn(List.of(paymentAttempt1, paymentAttempt2));
 
@@ -86,7 +87,7 @@ public class PaymentAttemptControllerTest {
 
     @Test
     public void getPayment_ShouldReturn200() throws Exception {
-        PaymentAttemptEntity paymentAttempt = createPaymentAttempt(paymentId, orderId);
+        PaymentAttemptResponse paymentAttempt = createPaymentAttempt(paymentId, orderId);
         when(paymentAttemptService.getPaymentAttempt(orderId, paymentId)).thenReturn(paymentAttempt);
 
         mvc.perform(get("/api/v1/orders/{orderId}/payments/{paymentId}", orderId, paymentId))
@@ -118,7 +119,7 @@ public class PaymentAttemptControllerTest {
     public void createPayment_WhenRequestIsValid_ShouldReturn201() throws Exception {
         CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(
                 PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttempt(paymentId, orderId);
+        PaymentAttemptResponse paymentAttempt = createPaymentAttempt(paymentId, orderId);
         when(paymentAttemptService.createPaymentAttempt(orderId, request)).thenReturn(paymentAttempt);
 
         mvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
@@ -155,7 +156,7 @@ public class PaymentAttemptControllerTest {
     public void createPayment_WhenValidationFailsWithEmptyProvider_ShouldReturn400() throws Exception {
         CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(
                 null, DEFAULT_IDEMPOTENCY_KEY);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttempt(paymentId, orderId);
+        PaymentAttemptResponse paymentAttempt = createPaymentAttempt(paymentId, orderId);
         when(paymentAttemptService.createPaymentAttempt(orderId, request)).thenReturn(paymentAttempt);
 
         mvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
@@ -173,7 +174,7 @@ public class PaymentAttemptControllerTest {
     public void createPayment_WhenValidationFailsWithEmptyIdempotencyKey_ShouldReturn400() throws Exception {
         CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(
                 PaymentProvider.NONE, null);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttempt(paymentId, orderId);
+        PaymentAttemptResponse paymentAttempt = createPaymentAttempt(paymentId, orderId);
         when(paymentAttemptService.createPaymentAttempt(orderId, request)).thenReturn(paymentAttempt);
 
         mvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
@@ -189,7 +190,7 @@ public class PaymentAttemptControllerTest {
 
     @Test
     public void startProcessing_ShouldReturn200() throws Exception {
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId,
+        PaymentAttemptResponse paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId,
                 PaymentStatus.PROCESSING);
         when(paymentAttemptService.startProcessing(orderId, paymentId)).thenReturn(paymentAttempt);
 
@@ -206,7 +207,7 @@ public class PaymentAttemptControllerTest {
     @Test
     public void markPaymentAsSucceeded_ShouldReturn200() throws Exception {
         PaymentSucceededRequest paymentSucceededRequest = new PaymentSucceededRequest(DEFAULT_PROVIDER_REF);
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId,
+        PaymentAttemptResponse paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId,
                 PaymentStatus.SUCCEEDED);
         when(paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF))
                 .thenReturn(paymentAttempt);
@@ -226,7 +227,8 @@ public class PaymentAttemptControllerTest {
     @Test
     public void markPaymentAsFailed_ShouldReturn200() throws Exception {
         PaymentFailedRequest paymentFailedRequest = new PaymentFailedRequest(500, "Internal error.");
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId, PaymentStatus.FAILED);
+        PaymentAttemptResponse paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId,
+                PaymentStatus.FAILED);
         when(paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Internal error."))
                 .thenReturn(paymentAttempt);
 
@@ -244,7 +246,7 @@ public class PaymentAttemptControllerTest {
 
     @Test
     public void markPaymentAsCancelled_ShouldReturn200() throws Exception {
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId,
+        PaymentAttemptResponse paymentAttempt = createPaymentAttemptWithStatus(paymentId, orderId,
                 PaymentStatus.CANCELLED);
         when(paymentAttemptService.markAsCancelled(orderId, paymentId)).thenReturn(paymentAttempt);
 
@@ -258,20 +260,22 @@ public class PaymentAttemptControllerTest {
         verify(paymentAttemptService).markAsCancelled(orderId, paymentId);
     }
 
-    private static PaymentAttemptEntity createPaymentAttempt(UUID id, UUID orderId) {
-        return PaymentAttemptEntity.builder()
+    private static PaymentAttemptResponse createPaymentAttempt(UUID id, UUID orderId) {
+        return PaymentAttemptResponse.builder()
                 .id(id)
                 .orderId(orderId)
+                .provider(PaymentProvider.NONE)
                 .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
                 .status(PaymentStatus.CREATED)
                 .build();
     }
 
-    private static PaymentAttemptEntity createPaymentAttemptWithStatus(UUID id, UUID orderId,
+    private static PaymentAttemptResponse createPaymentAttemptWithStatus(UUID id, UUID orderId,
             PaymentStatus status) {
-        return PaymentAttemptEntity.builder()
+        return PaymentAttemptResponse.builder()
                 .id(id)
                 .orderId(orderId)
+                .provider(PaymentProvider.NONE)
                 .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
                 .status(status)
                 .build();

@@ -10,16 +10,17 @@ public final class PaymentAttemptMapper {
 
     public static PaymentAttemptResponse toResponse(PaymentAttemptEntity paymentAttempt) {
         return PaymentAttemptResponse.builder()
-                .setId(paymentAttempt.getId())
-                .setProvider(paymentAttempt.getProvider())
-                .setAmount(paymentAttempt.getAmount())
-                .setStatus(paymentAttempt.getStatus())
-                .setIdempotencyKey(paymentAttempt.getIdempotencyKey())
-                .setProviderRef(paymentAttempt.getProviderRef())
-                .setFailureMessage(paymentAttempt.getFailureMessage())
-                .setFailureCode(paymentAttempt.getFailureCode())
-                .setCreatedAt(paymentAttempt.getCreatedAt())
-                .setUpdatedAt(paymentAttempt.getUpdatedAt())
+                .id(paymentAttempt.getId())
+                .orderId(paymentAttempt.getOrderId())
+                .provider(paymentAttempt.getProvider())
+                .amount(paymentAttempt.getAmount())
+                .status(paymentAttempt.getStatus())
+                .idempotencyKey(paymentAttempt.getIdempotencyKey())
+                .providerRef(paymentAttempt.getProviderRef())
+                .failureMessage(paymentAttempt.getFailureMessage())
+                .failureCode(paymentAttempt.getFailureCode())
+                .createdAt(paymentAttempt.getCreatedAt())
+                .updatedAt(paymentAttempt.getUpdatedAt())
                 .build();
     }
 

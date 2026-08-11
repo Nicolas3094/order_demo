@@ -40,19 +40,13 @@ public class PaymentAttemptController {
 
     @GetMapping("/{orderId}/payments")
     public ResponseEntity<List<PaymentAttemptResponse>> getAllPayments(@PathVariable UUID orderId) {
-        return ResponseEntity.ok(
-                paymentAttemptService.getAllPayments(orderId)
-                        .stream()
-                        .map(PaymentAttemptMapper::toResponse)
-                        .toList());
+        return ResponseEntity.ok(paymentAttemptService.getAllPayments(orderId));
     }
 
     @GetMapping("/{orderId}/payments/{paymentId}")
     public ResponseEntity<PaymentAttemptResponse> getPayment(@PathVariable UUID orderId,
             @PathVariable UUID paymentId) {
-        return ResponseEntity.ok(
-                PaymentAttemptMapper.toResponse(
-                        paymentAttemptService.getPaymentAttempt(orderId, paymentId)));
+        return ResponseEntity.ok(paymentAttemptService.getPaymentAttempt(orderId, paymentId));
     }
 
     @PostMapping("/{orderId}/payments")
@@ -60,8 +54,7 @@ public class PaymentAttemptController {
             @PathVariable UUID orderId,
             @Valid @RequestBody CreatePaymentAttemptRequest paymentRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(PaymentAttemptMapper.toResponse(
-                        paymentAttemptService.createPaymentAttempt(orderId, paymentRequest)));
+                .body(paymentAttemptService.createPaymentAttempt(orderId, paymentRequest));
     }
 
     // TODO: Replace manual state transition with payment gateway webhook. This
@@ -70,9 +63,7 @@ public class PaymentAttemptController {
     public ResponseEntity<PaymentAttemptResponse> startProcessing(
             @PathVariable UUID orderId,
             @PathVariable UUID paymentId) {
-        return ResponseEntity.ok(
-                PaymentAttemptMapper.toResponse(
-                        paymentAttemptService.startProcessing(orderId, paymentId)));
+        return ResponseEntity.ok(paymentAttemptService.startProcessing(orderId, paymentId));
     }
 
     // TODO: Replace manual state transition with payment gateway webhook. The
@@ -83,10 +74,9 @@ public class PaymentAttemptController {
             @PathVariable UUID paymentId,
             @RequestBody PaymentSucceededRequest paymentSucceededRequest) {
         return ResponseEntity.ok(
-                PaymentAttemptMapper.toResponse(
-                        paymentAttemptService.markAsSucceeded(
-                                orderId, paymentId,
-                                paymentSucceededRequest.providerRef())));
+                paymentAttemptService.markAsSucceeded(
+                        orderId, paymentId,
+                        paymentSucceededRequest.providerRef()));
     }
 
     // TODO: Replace manual state transition with payment gateway webhook. Failure
@@ -97,10 +87,9 @@ public class PaymentAttemptController {
             @PathVariable UUID paymentId,
             @RequestBody PaymentFailedRequest paymentFailedRequest) {
         return ResponseEntity.ok(
-                PaymentAttemptMapper.toResponse(
-                        paymentAttemptService.markAsFailed(
-                                orderId, paymentId, paymentFailedRequest.code(),
-                                paymentFailedRequest.errorMessage())));
+                paymentAttemptService.markAsFailed(
+                        orderId, paymentId, paymentFailedRequest.code(),
+                        paymentFailedRequest.errorMessage()));
     }
 
     // TODO: Replace manual state transition with payment gateway webhook or
@@ -109,9 +98,7 @@ public class PaymentAttemptController {
     public ResponseEntity<PaymentAttemptResponse> markPaymentAsCancelled(
             @PathVariable UUID orderId,
             @PathVariable UUID paymentId) {
-        return ResponseEntity.ok(
-                PaymentAttemptMapper.toResponse(
-                        paymentAttemptService.markAsCancelled(orderId, paymentId)));
+        return ResponseEntity.ok(paymentAttemptService.markAsCancelled(orderId, paymentId));
     }
 
 }

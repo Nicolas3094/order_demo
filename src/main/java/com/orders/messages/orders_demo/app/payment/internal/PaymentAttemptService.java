@@ -11,6 +11,7 @@ import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
+import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
 
@@ -35,10 +36,12 @@ public class PaymentAttemptService {
      * @return a list containing all payment attempts for the order.
      * @throws OrderNotFoundException if the order does not exist.
      */
-    public List<PaymentAttemptEntity> getAllPayments(UUID orderId) {
+    public List<PaymentAttemptResponse> getAllPayments(UUID orderId) {
         orderInternalApi.validateOrderExists(orderId);
 
-        return paymentAttemptRepository.findByOrderId(orderId);
+        return paymentAttemptRepository.findByOrderId(orderId).stream()
+                .map(PaymentAttemptMapper::toResponse)
+                .toList();
     }
 
     /**
@@ -51,8 +54,8 @@ public class PaymentAttemptService {
      * @throws PaymentNotFoundException if the payment attempt does not exist or
      *                                  does not belong to the specified order.
      */
-    public PaymentAttemptEntity getPaymentAttempt(UUID orderId, UUID paymentId) {
-        return findPaymentAttempt(orderId, paymentId);
+    public PaymentAttemptResponse getPaymentAttempt(UUID orderId, UUID paymentId) {
+        return PaymentAttemptMapper.toResponse(findPaymentAttempt(orderId, paymentId));
     }
 
     /**
@@ -72,21 +75,21 @@ public class PaymentAttemptService {
      *                                      payment attempts.
      */
     @Transactional
-    public PaymentAttemptEntity createPaymentAttempt(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
+    public PaymentAttemptResponse createPaymentAttempt(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
         OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
 
         Optional<PaymentAttemptEntity> paymentOpt = paymentAttemptRepository
                 .findByIdempotencyKey(paymentRequest.idempotencyKey());
 
         if (paymentOpt.isPresent()) {
-            return paymentOpt.get();
+            return PaymentAttemptMapper.toResponse(paymentOpt.get());
         }
 
-        return paymentAttemptRepository
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository
                 .save(PaymentAttemptMapper.toEntity(
                         paymentRequest,
                         orderData.amountTotal(),
-                        orderId));
+                        orderId)));
     }
 
     /**
@@ -101,7 +104,7 @@ public class PaymentAttemptService {
      *                                      to the processing state.
      */
     @Transactional
-    public PaymentAttemptEntity startProcessing(UUID orderId, UUID paymentId) {
+    public PaymentAttemptResponse startProcessing(UUID orderId, UUID paymentId) {
         return updatePaymentAttemptState(orderId, paymentId, payment -> {
             orderInternalApi.validateCanReceivePayment(orderId);
 
@@ -123,7 +126,7 @@ public class PaymentAttemptService {
      *                                      to the succeeded state.
      */
     @Transactional
-    public PaymentAttemptEntity markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
+    public PaymentAttemptResponse markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
         return updatePaymentAttemptState(orderId, paymentId,
                 payment -> {
                     payment.markAsSucceeded(providerRef);
@@ -146,7 +149,7 @@ public class PaymentAttemptService {
      *                                      to the failed state.
      */
     @Transactional
-    public PaymentAttemptEntity markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
+    public PaymentAttemptResponse markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
         return updatePaymentAttemptState(orderId, paymentId, payment -> payment.markAsFailed(code, errorMessage));
     }
 
@@ -162,7 +165,7 @@ public class PaymentAttemptService {
      *                                      to the cancelled state.
      */
     @Transactional
-    public PaymentAttemptEntity markAsCancelled(UUID orderId, UUID paymentId) {
+    public PaymentAttemptResponse markAsCancelled(UUID orderId, UUID paymentId) {
         return updatePaymentAttemptState(orderId, paymentId, PaymentAttemptEntity::cancel);
     }
 
@@ -177,13 +180,13 @@ public class PaymentAttemptService {
      * @throws PaymentNotFoundException if the payment attempt does not exist or
      *                                  does not belong to the specified order.
      */
-    private PaymentAttemptEntity updatePaymentAttemptState(UUID orderId, UUID paymentId,
+    private PaymentAttemptResponse updatePaymentAttemptState(UUID orderId, UUID paymentId,
             Consumer<PaymentAttemptEntity> action) {
         PaymentAttemptEntity paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
         action.accept(paymentAttempt);
 
-        return paymentAttemptRepository.save(paymentAttempt);
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(paymentAttempt));
     }
 
     /**
