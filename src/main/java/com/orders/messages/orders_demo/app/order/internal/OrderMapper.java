@@ -9,14 +9,14 @@ public final class OrderMapper {
     public static OrderResponse toResponse(OrderEntity order) {
         return OrderResponse.builder()
                 .setId(order.getId())
-                .setCustomerId(order.getCustomer().getId())
-                .setAmountTotal(order.getAmountTotal())
-                .setStatus(order.getStatus())
-                .setCreatedAt(order.getCreatedAt())
-                .setCurrency(order.getCurrency())
-                .setCreatedAt(order.getCreatedAt())
-                .setUpdatedAt(order.getUpdatedAt())
-                .setExpiresAt(order.getExpiresAt())
+                .customerId(order.getCustomer().getId())
+                .amountTotal(order.getAmountTotal())
+                .status(order.getStatus())
+                .createdAt(order.getCreatedAt())
+                .currency(order.getCurrency())
+                .createdAt(order.getCreatedAt())
+                .updatedAt(order.getUpdatedAt())
+                .expiresAt(order.getExpiresAt())
                 .build();
     }
 

@@ -10,6 +10,7 @@ import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
@@ -36,8 +37,10 @@ public class OrderService {
      *
      * @return a list containing all persisted orders.
      */
-    public List<OrderEntity> getAllOrders() {
-        return orderRepository.findAll();
+    public List<OrderResponse> getAllOrders() {
+        return orderRepository.findAll().stream()
+                .map(OrderMapper::toResponse)
+                .toList();
     }
 
     /**
@@ -47,10 +50,10 @@ public class OrderService {
      * @return the requested order.
      * @throws OrderNotFoundException if the order does not exist.
      */
-    public OrderEntity getOrder(UUID id) {
+    public OrderResponse getOrder(UUID id) {
         return orderRepository.findById(id)
+                .map(OrderMapper::toResponse)
                 .orElseThrow(OrderNotFoundException::new);
-
     }
 
     /**
@@ -60,12 +63,12 @@ public class OrderService {
      * @return the persisted order.
      * @throws CustomerNotFoundException if the customer does not exist.
      */
-    public OrderEntity createOrder(CreateOrderRequest createOrderRequest) {
+    public OrderResponse createOrder(CreateOrderRequest createOrderRequest) {
         CustomerEntity customer = findCustomerById(createOrderRequest.customerId());
 
         OrderEntity order = OrderMapper.toEntity(createOrderRequest, customer);
 
-        return orderRepository.save(order);
+        return OrderMapper.toResponse(orderRepository.save(order));
     }
 
     /**
@@ -76,7 +79,7 @@ public class OrderService {
      * @throws OrderNotFoundException   if the order does not exist.
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
-    public OrderEntity cancelOrder(UUID id) {
+    public OrderResponse cancelOrder(UUID id) {
         return restoreProductsStock(id, OrderEntity::cancelOrder);
     }
 
@@ -88,7 +91,7 @@ public class OrderService {
      * @throws OrderNotFoundException   if the order does not exist.
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
-    public OrderEntity expireOrder(UUID id) {
+    public OrderResponse expireOrder(UUID id) {
         return restoreProductsStock(id, OrderEntity::expire);
     }
 
@@ -100,7 +103,7 @@ public class OrderService {
      * @throws OrderNotFoundException   if the order does not exist.
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
-    public OrderEntity refundOrder(UUID id) {
+    public OrderResponse refundOrder(UUID id) {
         return restoreProductsStock(id, OrderEntity::refund);
     }
 
@@ -119,7 +122,7 @@ public class OrderService {
      * @throws OrderNotFoundException   if the order does not exist.
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
-    private OrderEntity restoreProductsStock(UUID id, Consumer<OrderEntity> action) {
+    private OrderResponse restoreProductsStock(UUID id, Consumer<OrderEntity> action) {
         OrderEntity order = orderRepository.findById(id)
                 .orElseThrow(OrderNotFoundException::new);
 
@@ -136,7 +139,7 @@ public class OrderService {
             productRepository.save(product);
         }
 
-        return orderRepository.save(order);
+        return OrderMapper.toResponse(orderRepository.save(order));
 
     }
 

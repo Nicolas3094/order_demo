@@ -28,16 +28,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyExpiredException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
 
 @WebMvcTest(OrderController.class)
 public class OrderControllerTest {
@@ -52,10 +50,7 @@ public class OrderControllerTest {
     private UUID customerId;
     private UUID orderId;
 
-    private static final String DEFAULT_SKU = "sku";
-    private static final String DEFAULT_DESCRIPTION = "description";
     private static final BigDecimal DEFAULT_UNIT_PRICE = new BigDecimal("123.00");
-    private static final Long DEFAULT_QUANTITY = 1L;
 
     @BeforeEach
     public void setup() {
@@ -65,8 +60,8 @@ public class OrderControllerTest {
 
     @Test
     public void getAllOrders_ShouldReturn200() throws Exception {
-        OrderEntity order1 = createPendingOrder(customerId);
-        OrderEntity order2 = createPendingOrder(customerId);
+        OrderResponse order1 = createPendingOrder(customerId);
+        OrderResponse order2 = createPendingOrder(customerId);
         when(orderService.getAllOrders()).thenReturn(List.of(order1, order2));
 
         mvc.perform(get("/api/v1/orders"))
@@ -75,19 +70,18 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].customerId").value(customerId.toString()))
                 .andExpect(jsonPath("$[0].currency").value("MXN"))
-                .andExpect(jsonPath("$[0].amountTotal").value(0))
+                .andExpect(jsonPath("$[0].amountTotal").value(123.00))
                 .andExpect(jsonPath("$[0].status").value("PENDING_PAYMENT"))
                 .andExpect(jsonPath("$[1].customerId").value(customerId.toString()))
                 .andExpect(jsonPath("$[1].currency").value("MXN"))
-                .andExpect(jsonPath("$[1].amountTotal").value(0))
+                .andExpect(jsonPath("$[1].amountTotal").value(123.00))
                 .andExpect(jsonPath("$[1].status").value("PENDING_PAYMENT"));
         verify(orderService).getAllOrders();
     }
 
     @Test
     public void getOrder_ShouldReturn200() throws Exception {
-        OrderEntity order = createPendingOrder(customerId);
-        order.addItem(createOrderItem());
+        OrderResponse order = createPendingOrder(customerId);
         when(orderService.getOrder(orderId)).thenReturn(order);
 
         mvc.perform(get("/api/v1/orders/{id}", orderId)).andExpect(status().isOk())
@@ -116,8 +110,7 @@ public class OrderControllerTest {
     @Test
     public void createOrder_WhenRequestIsValid_ShouldReturn201() throws Exception {
         CreateOrderRequest request = createValidRequest(customerId);
-        OrderEntity order = createPendingOrder(customerId);
-        order.addItem(createOrderItem());
+        OrderResponse order = createPendingOrder(customerId);
         when(orderService.createOrder(request)).thenReturn(order);
 
         mvc.perform(post("/api/v1/orders")
@@ -151,8 +144,8 @@ public class OrderControllerTest {
     @Test
     public void createOrder_WhenValidationFailsWithNullCustomerId_ShouldReturn400() throws Exception {
         CreateOrderRequest request = CreateOrderRequest.builder()
-                .setCustomerId(null)
-                .setCurrency(Currency.MXN)
+                .customerId(null)
+                .currency(Currency.MXN)
                 .build();
 
         mvc.perform(post("/api/v1/orders")
@@ -170,8 +163,8 @@ public class OrderControllerTest {
     @Test
     public void createOrder_WhenValidationFailsWithBlankCurrency_ShouldReturn400() throws Exception {
         CreateOrderRequest request = CreateOrderRequest.builder()
-                .setCustomerId(customerId)
-                .setCurrency(null)
+                .customerId(customerId)
+                .currency(null)
                 .build();
 
         mvc.perform(post("/api/v1/orders")
@@ -188,8 +181,7 @@ public class OrderControllerTest {
 
     @Test
     public void cancelOrder_WhenOrderIsOnPending_ShouldReturn200() throws Exception {
-        OrderEntity order = createOrderWithStatus(customerId, OrderStatus.CANCELLED);
-        order.addItem(createOrderItem());
+        OrderResponse order = createOrderWithStatus(customerId, OrderStatus.CANCELLED);
         when(orderService.cancelOrder(orderId)).thenReturn(order);
 
         mvc.perform(patch("/api/v1/orders/{id}/cancel", orderId))
@@ -232,8 +224,7 @@ public class OrderControllerTest {
 
     @Test
     public void refundOrder_WhenOrderIsValid_ShouldReturn200() throws Exception {
-        OrderEntity order = createOrderWithStatus(customerId, OrderStatus.REFUNDED);
-        order.addItem(createOrderItem());
+        OrderResponse order = createOrderWithStatus(customerId, OrderStatus.REFUNDED);
         when(orderService.refundOrder(orderId)).thenReturn(order);
 
         mvc.perform(patch("/api/v1/orders/{id}/refund", orderId))
@@ -276,8 +267,7 @@ public class OrderControllerTest {
 
     @Test
     public void expireOrder_WhenOrderIsValid_ShouldReturn200() throws Exception {
-        OrderEntity order = createOrderWithStatus(customerId, OrderStatus.EXPIRED);
-        order.addItem(createOrderItem());
+        OrderResponse order = createOrderWithStatus(customerId, OrderStatus.EXPIRED);
         when(orderService.expireOrder(orderId)).thenReturn(order);
 
         mvc.perform(patch("/api/v1/orders/{id}/expire", orderId))
@@ -320,37 +310,27 @@ public class OrderControllerTest {
 
     private static CreateOrderRequest createValidRequest(UUID customerId) {
         return CreateOrderRequest.builder()
-                .setCustomerId(customerId)
-                .setCurrency(Currency.MXN)
-                .build();
-    }
-
-    private static CustomerEntity createCustomer(UUID customerId) {
-        return new CustomerEntity(customerId, "user_email", "user_name", CustomerStatus.ACTIVE);
-    }
-
-    private static OrderEntity createPendingOrder(UUID customerId) {
-        return OrderEntity.builder()
-                .customer(createCustomer(customerId))
+                .customerId(customerId)
                 .currency(Currency.MXN)
                 .build();
     }
 
-    private static OrderEntity createOrderWithStatus(UUID customerId, OrderStatus status) {
-        return OrderEntity.builder()
-                .customer(createCustomer(customerId))
-                .currency(Currency.MXN).status(status)
+    private static OrderResponse createPendingOrder(UUID customerId) {
+        return OrderResponse.builder()
+                .customerId(customerId)
+                .currency(Currency.MXN)
+                .amountTotal(DEFAULT_UNIT_PRICE)
+                .status(OrderStatus.PENDING_PAYMENT)
                 .build();
     }
 
-    private static OrderItemEntity createOrderItem() {
-        return OrderItemEntity.builder()
-                .sku(DEFAULT_SKU)
-                .description(DEFAULT_DESCRIPTION)
-                .unitPrice(DEFAULT_UNIT_PRICE)
-                .quantity(DEFAULT_QUANTITY)
+    private static OrderResponse createOrderWithStatus(UUID customerId, OrderStatus status) {
+        return OrderResponse.builder()
+                .customerId(customerId)
+                .currency(Currency.MXN)
+                .status(status)
+                .amountTotal(DEFAULT_UNIT_PRICE)
                 .build();
-
     }
 
     @SuppressWarnings("unused")

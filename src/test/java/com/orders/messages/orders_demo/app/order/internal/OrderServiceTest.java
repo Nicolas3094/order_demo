@@ -25,6 +25,7 @@ import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
@@ -49,21 +50,24 @@ public class OrderServiceTest {
 
     @BeforeEach
     public void setup() {
-        fakeOrder = OrderEntity.builder().customer(new CustomerEntity("email", "name")).build();
+        fakeOrder = OrderEntity.builder()
+                .id(UUID.randomUUID())
+                .customer(new CustomerEntity("email", "name"))
+                .build();
         orderId = fakeOrder.getId();
     }
 
     @Test
     public void getAllOrders_ShouldReturnListOfOrders() {
-        OrderEntity order1 = createOrder(UUID.randomUUID(), OrderStatus.PENDING_PAYMENT);
-        OrderEntity order2 = createOrder(UUID.randomUUID(), OrderStatus.PAID);
+        OrderEntity order1 = createOrder(OrderStatus.PENDING_PAYMENT);
+        OrderEntity order2 = createOrder(OrderStatus.PAID);
         when(orderRepository.findAll()).thenReturn(List.of(order1, order2));
 
-        List<OrderEntity> result = orderService.getAllOrders();
+        List<OrderResponse> result = orderService.getAllOrders();
 
         assertEquals(2, result.size());
-        assertEquals(order1, result.get(0));
-        assertEquals(order2, result.get(1));
+        assertEquals(order1.getId(), result.get(0).id());
+        assertEquals(order2.getId(), result.get(1).id());
         verify(orderRepository).findAll();
     }
 
@@ -77,9 +81,9 @@ public class OrderServiceTest {
     public void getOrder_WhenOrderExists_ReturnsOrder() {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
 
-        OrderEntity result = orderService.getOrder(orderId);
+        OrderResponse result = orderService.getOrder(orderId);
 
-        assertEquals(orderId, result.getId());
+        assertEquals(orderId, result.id());
 
     }
 
@@ -101,25 +105,26 @@ public class OrderServiceTest {
         UUID customerId = UUID.randomUUID();
         CustomerEntity customer = new CustomerEntity(customerId, "email", "name", CustomerStatus.ACTIVE);
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
-                .setCustomerId(customerId)
-                .setCurrency(Currency.MXN)
+                .customerId(customerId)
+                .currency(Currency.MXN)
                 .build();
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
         when(orderRepository.save(any(OrderEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderEntity result = orderService.createOrder(orderRequest);
+        OrderResponse result = orderService.createOrder(orderRequest);
 
-        assertEquals(customer, result.getCustomer());
-        assertEquals(orderRequest.currency(), result.getCurrency());
-        assertEquals(BigDecimal.ZERO, result.getAmountTotal());
-        assertEquals(OrderStatus.PENDING_PAYMENT, result.getStatus());
+        assertEquals(customerId, result.customerId());
+        assertEquals(orderRequest.currency(), result.currency());
+        assertEquals(BigDecimal.ZERO, result.amountTotal());
+        assertEquals(OrderStatus.PENDING_PAYMENT, result.status());
     }
 
     @Test
     public void createOrder_WhenCustomerNotExists_ShouldThrowCustomerNotFoundException() {
         UUID customerId = UUID.randomUUID();
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
-                .setCustomerId(customerId)
+                .customerId(customerId)
+                .currency(Currency.MXN)
                 .build();
 
         Exception result = assertThrows(CustomerNotFoundException.class, () -> orderService.createOrder(orderRequest));
@@ -139,9 +144,9 @@ public class OrderServiceTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderEntity result = orderService.cancelOrder(orderId);
+        OrderResponse result = orderService.cancelOrder(orderId);
 
-        assertEquals(OrderStatus.CANCELLED, result.getStatus());
+        assertEquals(OrderStatus.CANCELLED, result.status());
         verify(orderRepository).save(fakeOrder);
     }
 
@@ -158,9 +163,9 @@ public class OrderServiceTest {
         when(productRepository.findBySku(product2.getSku())).thenReturn(Optional.of(product2));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderEntity result = orderService.cancelOrder(orderId);
+        OrderResponse result = orderService.cancelOrder(orderId);
 
-        assertEquals(OrderStatus.CANCELLED, result.getStatus());
+        assertEquals(OrderStatus.CANCELLED, result.status());
         assertEquals(7, product1.getQuantity());
         assertEquals(4, product2.getQuantity());
         verify(orderRepository).save(fakeOrder);
@@ -201,9 +206,9 @@ public class OrderServiceTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderEntity result = orderService.expireOrder(orderId);
+        OrderResponse result = orderService.expireOrder(orderId);
 
-        assertEquals(OrderStatus.EXPIRED, result.getStatus());
+        assertEquals(OrderStatus.EXPIRED, result.status());
         verify(orderRepository).save(fakeOrder);
     }
 
@@ -220,9 +225,9 @@ public class OrderServiceTest {
         when(productRepository.findBySku(product2.getSku())).thenReturn(Optional.of(product2));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderEntity result = orderService.expireOrder(orderId);
+        OrderResponse result = orderService.expireOrder(orderId);
 
-        assertEquals(OrderStatus.EXPIRED, result.getStatus());
+        assertEquals(OrderStatus.EXPIRED, result.status());
         assertEquals(7, product1.getQuantity());
         assertEquals(4, product2.getQuantity());
         verify(orderRepository).save(fakeOrder);
@@ -264,9 +269,9 @@ public class OrderServiceTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderEntity result = orderService.refundOrder(orderId);
+        OrderResponse result = orderService.refundOrder(orderId);
 
-        assertEquals(OrderStatus.REFUNDED, result.getStatus());
+        assertEquals(OrderStatus.REFUNDED, result.status());
         verify(orderRepository).save(fakeOrder);
     }
 
@@ -284,9 +289,9 @@ public class OrderServiceTest {
         when(productRepository.findBySku(product2.getSku())).thenReturn(Optional.of(product2));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
-        OrderEntity result = orderService.refundOrder(orderId);
+        OrderResponse result = orderService.refundOrder(orderId);
 
-        assertEquals(OrderStatus.REFUNDED, result.getStatus());
+        assertEquals(OrderStatus.REFUNDED, result.status());
         assertEquals(7, product1.getQuantity());
         assertEquals(4, product2.getQuantity());
         verify(orderRepository).save(fakeOrder);
@@ -317,9 +322,9 @@ public class OrderServiceTest {
         assertEquals("Order could not be found.", result.getMessage());
     }
 
-    private OrderEntity createOrder(UUID id, OrderStatus status) {
+    private OrderEntity createOrder(OrderStatus status) {
         OrderEntity order = OrderEntity.builder()
-                .id(id)
+                .id(UUID.randomUUID())
                 .customer(new CustomerEntity("email", "name"))
                 .status(status)
                 .build();
@@ -328,6 +333,7 @@ public class OrderServiceTest {
 
     private OrderItemEntity createOrderItem(ProductEntity product, Long quantity) {
         return OrderItemEntity.builder()
+                .id(UUID.randomUUID())
                 .sku(product.getSku())
                 .quantity(quantity)
                 .unitPrice(product.getPrice())
@@ -336,6 +342,7 @@ public class OrderServiceTest {
 
     private ProductEntity createProduct(String sku, Long quantity) {
         return ProductEntity.builder()
+                .id(UUID.randomUUID())
                 .name(sku)
                 .sku(sku)
                 .price(BigDecimal.valueOf(10))

@@ -30,46 +30,33 @@ public class OrderController {
 
     @GetMapping
     public ResponseEntity<List<OrderResponse>> getAllOrders() {
-        return ResponseEntity.ok(
-                orderService.getAllOrders()
-                        .stream()
-                        .map(OrderMapper::toResponse)
-                        .toList());
+        return ResponseEntity.ok(orderService.getAllOrders());
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<OrderResponse> getOrder(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                OrderMapper.toResponse(
-                        orderService.getOrder(id)));
+        return ResponseEntity.ok(orderService.getOrder(id));
     }
 
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody CreateOrderRequest createOrderRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(OrderMapper.toResponse(
-                        orderService.createOrder(createOrderRequest)));
+                .body(orderService.createOrder(createOrderRequest));
     }
 
     @PatchMapping("/{id}/cancel")
     public ResponseEntity<OrderResponse> cancelOrder(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                OrderMapper.toResponse(
-                        orderService.cancelOrder(id)));
+        return ResponseEntity.ok(orderService.cancelOrder(id));
     }
 
     @PatchMapping("/{id}/expire")
     public ResponseEntity<OrderResponse> expireOrder(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                OrderMapper.toResponse(
-                        orderService.expireOrder(id)));
+        return ResponseEntity.ok(orderService.expireOrder(id));
     }
 
     @PatchMapping("/{id}/refund")
     public ResponseEntity<OrderResponse> refundOrder(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                OrderMapper.toResponse(
-                        orderService.refundOrder(id)));
+        return ResponseEntity.ok(orderService.refundOrder(id));
     }
 
 }

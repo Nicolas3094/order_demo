@@ -28,12 +28,12 @@ public record CreateOrderRequest(
             return new CreateOrderRequest(customerId, currency);
         }
 
-        public Builder setCustomerId(UUID customerId) {
+        public Builder customerId(UUID customerId) {
             this.customerId = customerId;
             return this;
         }
 
-        public Builder setCurrency(Currency currency) {
+        public Builder currency(Currency currency) {
             this.currency = currency;
             return this;
         }

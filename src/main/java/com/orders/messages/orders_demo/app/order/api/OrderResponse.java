@@ -56,42 +56,42 @@ public record OrderResponse(
             return this;
         }
 
-        public Builder setCustomerId(UUID customerId) {
+        public Builder customerId(UUID customerId) {
             this.customerId = customerId;
             return this;
         }
 
-        public Builder setCurrency(Currency currency) {
+        public Builder currency(Currency currency) {
             this.currency = currency;
             return this;
         }
 
-        public Builder setAmountTotal(BigDecimal amountTotal) {
+        public Builder amountTotal(BigDecimal amountTotal) {
             this.amountTotal = amountTotal;
             return this;
         }
 
-        public Builder setStatus(OrderStatus status) {
+        public Builder status(OrderStatus status) {
             this.status = status;
             return this;
         }
 
-        public Builder setVersion(Long version) {
+        public Builder version(Long version) {
             this.version = version;
             return this;
         }
 
-        public Builder setCreatedAt(Instant createdAt) {
+        public Builder createdAt(Instant createdAt) {
             this.createdAt = createdAt;
             return this;
         }
 
-        public Builder setUpdatedAt(Instant updatedAt) {
+        public Builder updatedAt(Instant updatedAt) {
             this.updatedAt = updatedAt;
             return this;
         }
 
-        public Builder setExpiresAt(Instant expiresAt) {
+        public Builder expiresAt(Instant expiresAt) {
             this.expiresAt = expiresAt;
             return this;
         }
