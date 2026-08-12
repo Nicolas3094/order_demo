@@ -28,7 +28,6 @@ import com.orders.messages.orders_demo.app.customer.internal.exceptions.Customer
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 

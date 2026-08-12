@@ -1,4 +1,4 @@
-package com.orders.messages.orders_demo.app.order_item.internal;
+package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -25,13 +25,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.orders.messages.orders_demo.app.order.api.CreateOrderItemRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderItemChangeQuantityRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderItemChangeUnitPriceRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderItemStateException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.order_item.api.CreateOrderItemRequest;
-import com.orders.messages.orders_demo.app.order_item.api.OrderItemChangeQuantityRequest;
-import com.orders.messages.orders_demo.app.order_item.api.OrderItemChangeUnitPriceRequest;
-import com.orders.messages.orders_demo.app.order_item.api.OrderItemResponse;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.OrderItemNotFoundException;
 
 @WebMvcTest(OrderItemController.class)
 public class OrderItemControllerTest {

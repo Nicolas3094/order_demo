@@ -1,4 +1,4 @@
-package com.orders.messages.orders_demo.app.order_item.internal;
+package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -11,8 +11,6 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
-import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 
 public class OrderItemEntityTest {

@@ -16,7 +16,6 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrde
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyExpiredException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyPaidException;
-import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;

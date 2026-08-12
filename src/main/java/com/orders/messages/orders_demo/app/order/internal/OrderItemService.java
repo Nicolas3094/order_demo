@@ -1,4 +1,4 @@
-package com.orders.messages.orders_demo.app.order_item.internal;
+package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -7,13 +7,11 @@ import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
-import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
+import com.orders.messages.orders_demo.app.order.api.CreateOrderItemRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderItemStateException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.order_item.api.CreateOrderItemRequest;
-import com.orders.messages.orders_demo.app.order_item.api.OrderItemResponse;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;

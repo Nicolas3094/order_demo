@@ -23,11 +23,11 @@ import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
+import com.orders.messages.orders_demo.app.order.internal.OrderItemEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
 import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderInternalApiImplTest {

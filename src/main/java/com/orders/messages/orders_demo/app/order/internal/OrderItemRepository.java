@@ -1,4 +1,4 @@
-package com.orders.messages.orders_demo.app.order_item.internal;
+package com.orders.messages.orders_demo.app.order.internal;
 
 import java.util.UUID;
 

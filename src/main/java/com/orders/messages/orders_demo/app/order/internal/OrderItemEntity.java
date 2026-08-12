@@ -1,10 +1,8 @@
-package com.orders.messages.orders_demo.app.order_item.internal;
+package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.UUID;
-
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

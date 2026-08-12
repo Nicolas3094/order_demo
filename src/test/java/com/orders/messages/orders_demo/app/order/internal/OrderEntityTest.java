@@ -15,7 +15,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
-import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderEntityTest {

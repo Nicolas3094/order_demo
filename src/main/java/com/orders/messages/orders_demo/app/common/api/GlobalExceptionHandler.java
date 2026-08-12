@@ -13,10 +13,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerStateException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;

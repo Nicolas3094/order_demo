@@ -1,4 +1,4 @@
-package com.orders.messages.orders_demo.app.order_item.api;
+package com.orders.messages.orders_demo.app.order.api;
 
 import jakarta.validation.constraints.Positive;
 

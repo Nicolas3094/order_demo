@@ -1,4 +1,4 @@
-package com.orders.messages.orders_demo.app.order_item.internal;
+package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -18,14 +18,11 @@ import static org.mockito.Mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
-import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
-import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
+import com.orders.messages.orders_demo.app.order.api.CreateOrderItemRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.order_item.api.CreateOrderItemRequest;
-import com.orders.messages.orders_demo.app.order_item.api.OrderItemResponse;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
