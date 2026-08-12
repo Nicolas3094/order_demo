@@ -25,12 +25,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.order_item.api.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.app.order_item.api.OrderItemChangeQuantityRequest;
 import com.orders.messages.orders_demo.app.order_item.api.OrderItemChangeUnitPriceRequest;
+import com.orders.messages.orders_demo.app.order_item.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.app.order_item.internal.exceptions.OrderItemNotFoundException;
 
@@ -45,7 +44,6 @@ public class OrderItemControllerTest {
     @MockitoBean
     private OrderItemService orderItemService;
 
-    private UUID customerId;
     private UUID orderId;
     private UUID orderItemId;
 
@@ -56,17 +54,15 @@ public class OrderItemControllerTest {
 
     @BeforeEach
     public void setup() {
-        customerId = UUID.randomUUID();
         orderId = UUID.randomUUID();
         orderItemId = UUID.randomUUID();
     }
 
     @Test
     public void getAllOrderItems_ShouldReturn200() throws Exception {
-        OrderItemEntity orderItem1 = createOrderItem();
-        OrderItemEntity orderItem2 = createOrderItem();
-        when(orderItemService.getAllOrderItems(orderId))
-                .thenReturn(List.of(orderItem1, orderItem2));
+        OrderItemResponse orderItem1 = createOrderItem(orderItemId);
+        OrderItemResponse orderItem2 = createOrderItem(UUID.randomUUID());
+        when(orderItemService.getAllOrderItems(orderId)).thenReturn(List.of(orderItem1, orderItem2));
 
         mvc.perform(get("/api/v1/orders/{orderId}/items", orderId))
                 .andExpect(status().isOk())
@@ -99,12 +95,9 @@ public class OrderItemControllerTest {
 
     @Test
     public void getOrderItem_ShouldReturn200() throws Exception {
-        OrderEntity order = createPendingOrder(customerId);
-        OrderItemEntity orderItem = createOrderItem();
-        order.addItem(orderItem);
+        OrderItemResponse orderItem = createOrderItem(orderItemId);
 
-        when(orderItemService.getOrderItem(orderId, orderItemId))
-                .thenReturn(orderItem);
+        when(orderItemService.getOrderItem(orderId, orderItemId)).thenReturn(orderItem);
 
         mvc.perform(get("/api/v1/orders/{orderId}/items/{orderItemId}", orderId, orderItemId))
                 .andExpect(status().isOk())
@@ -134,9 +127,7 @@ public class OrderItemControllerTest {
     @Test
     public void createOrderItem_WhenRequestIsValid_ShouldReturn201() throws Exception {
         CreateOrderItemRequest request = createOrderItemRequest();
-        OrderEntity order = createPendingOrder(customerId);
-        OrderItemEntity orderItem = createOrderItem();
-        order.addItem(orderItem);
+        OrderItemResponse orderItem = createOrderItem(orderItemId);
         when(orderItemService.createOrderItem(orderId, request)).thenReturn(orderItem);
 
         mvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
@@ -265,12 +256,10 @@ public class OrderItemControllerTest {
     public void changeOrderItemUnitPrice_ShouldReturn200() throws Exception {
         BigDecimal newUnitPrice = new BigDecimal("8.00");
         OrderItemChangeUnitPriceRequest request = new OrderItemChangeUnitPriceRequest(newUnitPrice);
-        OrderEntity order = createPendingOrder(customerId);
-        OrderItemEntity orderItem = createOrderItem();
-        order.addItem(orderItem);
-        orderItem.changeUnitPrice(newUnitPrice);
-        when(orderItemService.changeUnitPrice(orderId, orderItemId, newUnitPrice))
-                .thenReturn(orderItem);
+        OrderItemResponse orderItem = createOrderItem(orderItemId).toBuilder()
+                .unitPrice(newUnitPrice)
+                .build();
+        when(orderItemService.changeUnitPrice(orderId, orderItemId, newUnitPrice)).thenReturn(orderItem);
 
         mvc.perform(patch("/api/v1/orders/{orderId}/items/{orderItemId}/price",
                 orderId, orderItemId)
@@ -345,10 +334,9 @@ public class OrderItemControllerTest {
     public void changeOrderItemQuantity_ShouldReturn200() throws Exception {
         Long newQuantity = 20L;
         OrderItemChangeQuantityRequest request = new OrderItemChangeQuantityRequest(newQuantity);
-        OrderEntity order = createPendingOrder(customerId);
-        OrderItemEntity orderItem = createOrderItem();
-        order.addItem(orderItem);
-        orderItem.changeQuantity(newQuantity);
+        OrderItemResponse orderItem = createOrderItem(orderItemId).toBuilder()
+                .quantity(newQuantity)
+                .build();
         when(orderItemService.changeQuantity(orderId, orderItemId, newQuantity)).thenReturn(orderItem);
 
         mvc.perform(patch("/api/v1/orders/{orderId}/items/{orderItemId}/quantity", orderId, orderItemId)
@@ -420,15 +408,9 @@ public class OrderItemControllerTest {
         verify(orderItemService, never()).changeQuantity(any(), any(), any());
     }
 
-    private static OrderEntity createPendingOrder(UUID customerId) {
-        return OrderEntity.builder()
-                .customerId(customerId)
-                .currency(Currency.MXN)
-                .build();
-    }
-
-    private static OrderItemEntity createOrderItem() {
-        return OrderItemEntity.builder()
+    private static OrderItemResponse createOrderItem(UUID ordetItemId) {
+        return OrderItemResponse.builder()
+                .id(ordetItemId)
                 .sku(DEFAULT_SKU)
                 .description(DEFAULT_DESCRIPTION)
                 .unitPrice(DEFAULT_UNIT_PRICE)

@@ -8,6 +8,7 @@ public final class OrderItemMapper {
     public static OrderItemResponse toResponse(OrderItemEntity item) {
         return new OrderItemResponse(
                 item.getId(),
+                item.getOrder().getId(),
                 item.getSku(),
                 item.getDescription(),
                 item.getUnitPrice(),

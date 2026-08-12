@@ -33,20 +33,14 @@ public class OrderItemController {
 
     @GetMapping("/{orderId}/items")
     public ResponseEntity<List<OrderItemResponse>> getAllOrderItems(@PathVariable UUID orderId) {
-        return ResponseEntity.ok(
-                orderItemService.getAllOrderItems(orderId)
-                        .stream()
-                        .map(OrderItemMapper::toResponse)
-                        .toList());
+        return ResponseEntity.ok(orderItemService.getAllOrderItems(orderId));
     }
 
     @GetMapping("/{orderId}/items/{orderItemId}")
     public ResponseEntity<OrderItemResponse> getOrderItem(
             @PathVariable UUID orderId,
             @PathVariable UUID orderItemId) {
-        return ResponseEntity.ok(
-                OrderItemMapper.toResponse(
-                        orderItemService.getOrderItem(orderId, orderItemId)));
+        return ResponseEntity.ok(orderItemService.getOrderItem(orderId, orderItemId));
     }
 
     @PostMapping("/{orderId}/items")
@@ -54,8 +48,7 @@ public class OrderItemController {
             @PathVariable UUID orderId,
             @Valid @RequestBody CreateOrderItemRequest itemRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(OrderItemMapper.toResponse(
-                        orderItemService.createOrderItem(orderId, itemRequest)));
+                .body(orderItemService.createOrderItem(orderId, itemRequest));
     }
 
     @DeleteMapping("/{orderId}/items/{orderItemId}")
@@ -73,12 +66,10 @@ public class OrderItemController {
             @PathVariable UUID orderId,
             @PathVariable UUID orderItemId,
             @Valid @RequestBody OrderItemChangeUnitPriceRequest itemChangeUnitPriceRequest) {
-        return ResponseEntity.ok(
-                OrderItemMapper.toResponse(
-                        orderItemService.changeUnitPrice(
-                                orderId,
-                                orderItemId,
-                                itemChangeUnitPriceRequest.unitPrice())));
+        return ResponseEntity.ok(orderItemService.changeUnitPrice(
+                orderId,
+                orderItemId,
+                itemChangeUnitPriceRequest.unitPrice()));
     }
 
     @PatchMapping("/{orderId}/items/{orderItemId}/quantity")
@@ -86,12 +77,10 @@ public class OrderItemController {
             @PathVariable UUID orderId,
             @PathVariable UUID orderItemId,
             @Valid @RequestBody OrderItemChangeQuantityRequest orderItemChangeQuantityRequest) {
-        return ResponseEntity.ok(
-                OrderItemMapper.toResponse(
-                        orderItemService.changeQuantity(
-                                orderId,
-                                orderItemId,
-                                orderItemChangeQuantityRequest.quanity())));
+        return ResponseEntity.ok(orderItemService.changeQuantity(
+                orderId,
+                orderItemId,
+                orderItemChangeQuantityRequest.quanity()));
     }
 
 }

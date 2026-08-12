@@ -11,6 +11,7 @@ import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.order_item.api.CreateOrderItemRequest;
+import com.orders.messages.orders_demo.app.order_item.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.app.order_item.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
@@ -24,10 +25,12 @@ import jakarta.transaction.Transactional;
 public class OrderItemService {
 
     private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
+    private final OrderItemRepository orderItemRepository;
 
-    public OrderItemService(OrderItemRepository orderItemRepository, OrderRepository orderRepository,
+    public OrderItemService(
+            OrderItemRepository orderItemRepository,
+            OrderRepository orderRepository,
             ProductRepository productRepository) {
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
@@ -41,8 +44,10 @@ public class OrderItemService {
      * @return a list containing all items associated with the order.
      * @throws OrderNotFoundException if the order does not exist.
      */
-    public List<OrderItemEntity> getAllOrderItems(UUID orderId) {
-        return findOrder(orderId).getItems();
+    public List<OrderItemResponse> getAllOrderItems(UUID orderId) {
+        return findOrder(orderId).getItems().stream()
+                .map(OrderItemMapper::toResponse)
+                .toList();
     }
 
     /**
@@ -56,8 +61,8 @@ public class OrderItemService {
      * @throws OrderItemNotFoundException if the item does not exist or does not
      *                                    belong to the specified order.
      */
-    public OrderItemEntity getOrderItem(UUID orderId, UUID orderItemId) {
-        return findOrderItem(orderId, orderItemId);
+    public OrderItemResponse getOrderItem(UUID orderId, UUID orderItemId) {
+        return OrderItemMapper.toResponse(findOrderItem(orderId, orderItemId));
     }
 
     /**
@@ -80,7 +85,7 @@ public class OrderItemService {
      *                                        be added to the order.
      */
     @Transactional
-    public OrderItemEntity createOrderItem(UUID orderId, CreateOrderItemRequest request) {
+    public OrderItemResponse createOrderItem(UUID orderId, CreateOrderItemRequest request) {
         OrderEntity order = findOrder(orderId);
 
         validatePendingOrder(order);
@@ -101,7 +106,7 @@ public class OrderItemService {
 
         orderRepository.save(order);
 
-        return item;
+        return OrderItemMapper.toResponse(item);
     }
 
     /**
@@ -113,7 +118,7 @@ public class OrderItemService {
      * @return the updated order item.
      */
     @Transactional
-    public OrderItemEntity changeUnitPrice(UUID orderId, UUID orderItemId, BigDecimal unitPrice) {
+    public OrderItemResponse changeUnitPrice(UUID orderId, UUID orderItemId, BigDecimal unitPrice) {
         return updateOrderItemState(orderId, orderItemId, orderItem -> orderItem.changeUnitPrice(unitPrice));
     }
 
@@ -143,7 +148,7 @@ public class OrderItemService {
      *                                        to satisfy the requested quantity.
      */
     @Transactional
-    public OrderItemEntity changeQuantity(UUID orderId, UUID orderItemId, Long quantity) {
+    public OrderItemResponse changeQuantity(UUID orderId, UUID orderItemId, Long quantity) {
         return updateOrderItemState(orderId, orderItemId, orderItem -> {
             ProductEntity product = findProduct(orderItem.getSku());
 
@@ -199,12 +204,12 @@ public class OrderItemService {
      * @throws InvalidOrderItemStateException if the order can no longer be
      *                                        modified.
      */
-    private OrderItemEntity updateOrderItemState(UUID orderId, UUID orderItemId, Consumer<OrderItemEntity> action) {
+    private OrderItemResponse updateOrderItemState(UUID orderId, UUID orderItemId, Consumer<OrderItemEntity> action) {
         OrderItemEntity orderItem = findOrderItem(orderId, orderItemId);
 
         action.accept(orderItem);
 
-        return orderItemRepository.save(orderItem);
+        return OrderItemMapper.toResponse(orderItemRepository.save(orderItem));
     }
 
     /**

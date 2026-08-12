@@ -5,6 +5,7 @@ import java.util.UUID;
 
 public record OrderItemResponse(
         UUID id,
+        UUID orderId,
         String sku,
         String description,
         BigDecimal unitPrice,
@@ -17,6 +18,7 @@ public record OrderItemResponse(
 
     public static final class Builder {
         private UUID id;
+        private UUID orderId;
         private String sku;
         private String description;
         private BigDecimal unitPrice;
@@ -24,38 +26,54 @@ public record OrderItemResponse(
         private Long quantity;
 
         public OrderItemResponse build() {
-            return new OrderItemResponse(id, sku, description, unitPrice, quantity, lineTotal);
+            return new OrderItemResponse(id, orderId, sku, description, unitPrice, quantity, lineTotal);
         }
 
-        public Builder setId(UUID id) {
+        public Builder id(UUID id) {
             this.id = id;
             return this;
         }
 
-        public Builder setSku(String sku) {
+        public Builder orderId(UUID orderId) {
+            this.orderId = orderId;
+            return this;
+        }
+
+        public Builder sku(String sku) {
             this.sku = sku;
             return this;
         }
 
-        public Builder setDescription(String description) {
+        public Builder description(String description) {
             this.description = description;
             return this;
         }
 
-        public Builder setUnitPrice(BigDecimal unitPrice) {
+        public Builder unitPrice(BigDecimal unitPrice) {
             this.unitPrice = unitPrice;
             return this;
         }
 
-        public Builder setLineTotal(BigDecimal lineTotal) {
+        public Builder lineTotal(BigDecimal lineTotal) {
             this.lineTotal = lineTotal;
             return this;
         }
 
-        public Builder setQuantity(Long quantity) {
+        public Builder quantity(Long quantity) {
             this.quantity = quantity;
             return this;
         }
 
+    }
+
+    public Builder toBuilder() {
+        return new Builder()
+                .id(id)
+                .lineTotal(lineTotal)
+                .orderId(orderId)
+                .quantity(quantity)
+                .sku(sku)
+                .unitPrice(unitPrice)
+                .description(description);
     }
 }
