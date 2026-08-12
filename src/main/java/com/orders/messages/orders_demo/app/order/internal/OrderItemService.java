@@ -165,6 +165,26 @@ public class OrderItemService {
         });
     }
 
+    /**
+     * Deletes an existing order item from the specified order and restores the
+     * product stock for the removed quantity.
+     *
+     * <p>
+     * The order is validated to ensure it can still accept changes before the
+     * item is removed. The associated product stock is incremented by the
+     * quantity of the deleted item and the order is persisted afterwards.
+     * </p>
+     *
+     * @param orderId     the order identifier.
+     * @param orderItemId the order item identifier.
+     * @throws OrderItemNotFoundException     if the order item does not exist or
+     *                                        does not belong to the specified
+     *                                        order.
+     * @throws ProductNotFoundException       if the associated product does not
+     *                                        exist.
+     * @throws InvalidOrderItemStateException if the order can no longer be
+     *                                        modified.
+     */
     @Transactional
     public void deleteOrderItem(UUID orderId, UUID orderItemId) {
         OrderItemEntity orderItem = findOrderItem(orderId, orderItemId);
