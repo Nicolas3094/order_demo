@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.product.api.CreateProductRequest;
+import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
@@ -30,8 +31,8 @@ public class ProductService {
      * @return the requested product.
      * @throws ProductNotFoundException if the product does not exist.
      */
-    public ProductEntity getProduct(UUID productId) {
-        return findProduct(productId);
+    public ProductResponse getProduct(UUID productId) {
+        return ProductMapper.toResponse(findProduct(productId));
     }
 
     /**
@@ -39,8 +40,10 @@ public class ProductService {
      *
      * @return a list containing all products.
      */
-    public List<ProductEntity> getAllProducts() {
-        return productRepository.findAll();
+    public List<ProductResponse> getAllProducts() {
+        return productRepository.findAll().stream()
+                .map(ProductMapper::toResponse)
+                .toList();
     }
 
     /**
@@ -51,11 +54,11 @@ public class ProductService {
      * @throws InvalidProductException if another product already uses the same SKU.
      */
     @Transactional
-    public ProductEntity createProduct(CreateProductRequest request) {
+    public ProductResponse createProduct(CreateProductRequest request) {
 
         validateUniqueSku(request.sku());
 
-        return productRepository.save(ProductMapper.toEntity(request));
+        return ProductMapper.toResponse(productRepository.save(ProductMapper.toEntity(request)));
     }
 
     /**
@@ -67,7 +70,7 @@ public class ProductService {
      * @throws ProductNotFoundException if the product does not exist.
      */
     @Transactional
-    public ProductEntity changePrice(UUID productId, BigDecimal price) {
+    public ProductResponse changePrice(UUID productId, BigDecimal price) {
         return updateProduct(productId, product -> product.changePrice(price));
     }
 
@@ -80,7 +83,7 @@ public class ProductService {
      * @throws ProductNotFoundException if the product does not exist.
      */
     @Transactional
-    public ProductEntity increaseStock(UUID productId, Long quantity) {
+    public ProductResponse increaseStock(UUID productId, Long quantity) {
         return updateProduct(productId, product -> product.increaseStock(quantity));
     }
 
@@ -94,7 +97,7 @@ public class ProductService {
      * @throws InvalidProductException  if there is not enough stock available.
      */
     @Transactional
-    public ProductEntity decreaseStock(UUID productId, Long quantity) {
+    public ProductResponse decreaseStock(UUID productId, Long quantity) {
         return updateProduct(productId, product -> product.decreaseStock(quantity));
     }
 
@@ -107,7 +110,7 @@ public class ProductService {
      * @throws ProductNotFoundException if the product does not exist.
      */
     @Transactional
-    public ProductEntity changeCurrency(UUID productId, Currency currency) {
+    public ProductResponse changeCurrency(UUID productId, Currency currency) {
         return updateProduct(productId, product -> product.changeCurrency(currency));
     }
 
@@ -120,7 +123,7 @@ public class ProductService {
      * @throws ProductNotFoundException if the product does not exist.
      */
     @Transactional
-    public ProductEntity changeName(UUID productId, String name) {
+    public ProductResponse changeName(UUID productId, String name) {
         return updateProduct(productId, product -> product.changeName(name));
     }
 
@@ -133,7 +136,7 @@ public class ProductService {
      * @throws ProductNotFoundException if the product does not exist.
      */
     @Transactional
-    public ProductEntity changeDescription(UUID productId, String description) {
+    public ProductResponse changeDescription(UUID productId, String description) {
         return updateProduct(productId, product -> product.changeDescription(description));
     }
 
@@ -145,7 +148,7 @@ public class ProductService {
      * @throws ProductNotFoundException if the product does not exist.
      */
     @Transactional
-    public ProductEntity activate(UUID productId) {
+    public ProductResponse activate(UUID productId) {
         return updateProduct(productId, ProductEntity::activate);
     }
 
@@ -157,7 +160,7 @@ public class ProductService {
      * @throws ProductNotFoundException if the product does not exist.
      */
     @Transactional
-    public ProductEntity deactivate(UUID productId) {
+    public ProductResponse deactivate(UUID productId) {
         return updateProduct(productId, ProductEntity::deactivate);
     }
 
@@ -192,12 +195,12 @@ public class ProductService {
      * @return the updated product.
      * @throws ProductNotFoundException if the product does not exist.
      */
-    private ProductEntity updateProduct(UUID id, Consumer<ProductEntity> action) {
+    private ProductResponse updateProduct(UUID id, Consumer<ProductEntity> action) {
         ProductEntity product = findProduct(id);
 
         action.accept(product);
 
-        return productRepository.save(product);
+        return ProductMapper.toResponse(productRepository.save(product));
     }
 
     /**

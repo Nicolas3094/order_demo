@@ -37,88 +37,65 @@ public class ProductController {
 
     @GetMapping("/{productId}")
     public ResponseEntity<ProductResponse> getProduct(@PathVariable UUID productId) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.getProduct(productId)));
+        return ResponseEntity.ok(productService.getProduct(productId));
     }
 
     @GetMapping
     public ResponseEntity<List<ProductResponse>> getAllProducts() {
-        return ResponseEntity.ok(
-                productService.getAllProducts()
-                        .stream()
-                        .map(ProductMapper::toResponse)
-                        .toList());
+        return ResponseEntity.ok(productService.getAllProducts());
     }
 
     @PostMapping
     public ResponseEntity<ProductResponse> createProduct(
             @Valid @RequestBody CreateProductRequest createProductRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ProductMapper.toResponse(
-                        productService.createProduct(createProductRequest)));
+                .body(productService.createProduct(createProductRequest));
     }
 
     @PatchMapping("/{productId}/price")
     public ResponseEntity<ProductResponse> changePrice(@PathVariable UUID productId,
             @Valid @RequestBody ChangePriceRequest request) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.changePrice(productId, request.price())));
+        return ResponseEntity.ok(productService.changePrice(productId, request.price()));
     }
 
     @PatchMapping("/{productId}/increase-stock")
     public ResponseEntity<ProductResponse> increaseStock(@PathVariable UUID productId,
             @Valid @RequestBody IncreaseStockRequest request) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.increaseStock(productId, request.quantity())));
+        return ResponseEntity.ok(productService.increaseStock(productId, request.quantity()));
     }
 
     @PatchMapping("/{productId}/decrease-stock")
     public ResponseEntity<ProductResponse> decreaseStock(@PathVariable UUID productId,
             @Valid @RequestBody DecreaseStockRequest request) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.decreaseStock(productId, request.quantity())));
+        return ResponseEntity.ok(productService.decreaseStock(productId, request.quantity()));
     }
 
     @PatchMapping("/{productId}/currency")
     public ResponseEntity<ProductResponse> changeCurrency(@PathVariable UUID productId,
             @Valid @RequestBody ChangeCurrencyRequest request) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.changeCurrency(productId, request.currency())));
+        return ResponseEntity.ok(productService.changeCurrency(productId, request.currency()));
     }
 
     @PatchMapping("/{productId}/name")
     public ResponseEntity<ProductResponse> changeName(@PathVariable UUID productId,
             @Valid @RequestBody ChangeNameRequest request) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.changeName(productId, request.name())));
+        return ResponseEntity.ok(productService.changeName(productId, request.name()));
     }
 
     @PatchMapping("/{productId}/description")
     public ResponseEntity<ProductResponse> changeDescription(@PathVariable UUID productId,
             @Valid @RequestBody ChangeDescriptionRequest request) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.changeDescription(productId, request.description())));
+        return ResponseEntity.ok(productService.changeDescription(productId, request.description()));
     }
 
     @PatchMapping("/{productId}/activate")
     public ResponseEntity<ProductResponse> activate(@PathVariable UUID productId) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.activate(productId)));
+        return ResponseEntity.ok(productService.activate(productId));
     }
 
     @PatchMapping("/{productId}/deactivate")
     public ResponseEntity<ProductResponse> deactivate(@PathVariable UUID productId) {
-        return ResponseEntity.ok(
-                ProductMapper.toResponse(
-                        productService.deactivate(productId)));
+        return ResponseEntity.ok(productService.deactivate(productId));
     }
 
     @DeleteMapping("/{productId}")

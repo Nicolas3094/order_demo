@@ -74,4 +74,16 @@ public record ProductResponse(
         }
     }
 
+    public Builder toBuilder() {
+        return new Builder()
+                .id(id)
+                .sku(sku)
+                .name(name)
+                .description(description)
+                .price(price)
+                .active(active)
+                .quantity(quantity)
+                .currency(currency);
+    }
+
 }

@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -22,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.product.api.CreateProductRequest;
+import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
@@ -36,6 +38,7 @@ public class ProductServiceTest {
     private static final Long DEFAULT_QUANTITY = 10L;
 
     private UUID productId;
+    private ArgumentCaptor<ProductEntity> productCaptor;
 
     @Mock
     private ProductRepository productRepository;
@@ -46,6 +49,7 @@ public class ProductServiceTest {
     @BeforeEach
     public void setup() {
         productId = UUID.randomUUID();
+        productCaptor = ArgumentCaptor.forClass(ProductEntity.class);
     }
 
     @Test
@@ -53,7 +57,7 @@ public class ProductServiceTest {
         ProductEntity product = createProduct();
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
 
-        ProductEntity result = productService.getProduct(productId);
+        ProductResponse result = productService.getProduct(productId);
 
         assertEquals(product, result);
         verify(productRepository).findById(productId);
@@ -78,7 +82,7 @@ public class ProductServiceTest {
                         .build());
         when(productRepository.findAll()).thenReturn(products);
 
-        List<ProductEntity> result = productService.getAllProducts();
+        List<ProductResponse> result = productService.getAllProducts();
 
         assertEquals(products, result);
         verify(productRepository).findAll();
@@ -90,14 +94,14 @@ public class ProductServiceTest {
         when(productRepository.existsBySku(DEFAULT_SKU)).thenReturn(false);
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.createProduct(request);
+        ProductResponse result = productService.createProduct(request);
 
-        assertEquals(DEFAULT_SKU, result.getSku());
-        assertEquals(DEFAULT_NAME, result.getName());
-        assertEquals(DEFAULT_DESCRIPTION, result.getDescription());
-        assertEquals(DEFAULT_PRICE, result.getPrice());
-        assertEquals(Currency.MXN, result.getCurrency());
-        assertEquals(DEFAULT_QUANTITY, result.getQuantity());
+        assertEquals(DEFAULT_SKU, result.sku());
+        assertEquals(DEFAULT_NAME, result.name());
+        assertEquals(DEFAULT_DESCRIPTION, result.description());
+        assertEquals(DEFAULT_PRICE, result.price());
+        assertEquals(Currency.MXN, result.currency());
+        assertEquals(DEFAULT_QUANTITY, result.quantity());
         verify(productRepository).save(any(ProductEntity.class));
     }
 
@@ -140,10 +144,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.changePrice(productId, newPrice);
+        ProductResponse result = productService.changePrice(productId, newPrice);
 
-        assertEquals(newPrice, result.getPrice());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertEquals(newPrice, result.price());
     }
 
     @Test
@@ -162,10 +167,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.increaseStock(productId, 20L);
+        ProductResponse result = productService.increaseStock(productId, 20L);
 
-        assertEquals(DEFAULT_QUANTITY + 20L, result.getQuantity());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertEquals(DEFAULT_QUANTITY + 20L, result.quantity());
     }
 
     @Test
@@ -184,10 +190,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.decreaseStock(productId, 5L);
+        ProductResponse result = productService.decreaseStock(productId, 5L);
 
-        assertEquals(DEFAULT_QUANTITY - 5L, result.getQuantity());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertEquals(DEFAULT_QUANTITY - 5L, result.quantity());
     }
 
     @Test
@@ -206,10 +213,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.changeCurrency(productId, Currency.USD);
+        ProductResponse result = productService.changeCurrency(productId, Currency.USD);
 
-        assertEquals(Currency.USD, result.getCurrency());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertEquals(Currency.USD, result.currency());
     }
 
     @Test
@@ -228,10 +236,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.changeName(productId, "New Product");
+        ProductResponse result = productService.changeName(productId, "New Product");
 
-        assertEquals("New Product", result.getName());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertEquals("New Product", result.name());
     }
 
     @Test
@@ -250,10 +259,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.changeDescription(productId, "New Description");
+        ProductResponse result = productService.changeDescription(productId, "New Description");
 
-        assertEquals("New Description", result.getDescription());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertEquals("New Description", result.description());
     }
 
     @Test
@@ -273,10 +283,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.activate(productId);
+        ProductResponse result = productService.activate(productId);
 
-        assertTrue(result.getActive());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertTrue(result.active());
     }
 
     @Test
@@ -295,10 +306,11 @@ public class ProductServiceTest {
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ProductEntity result = productService.deactivate(productId);
+        ProductResponse result = productService.deactivate(productId);
 
-        assertFalse(result.getActive());
-        verify(productRepository).save(result);
+        verify(productRepository).save(productCaptor.capture());
+        assertEquals(result.id(), productCaptor.getValue().getId());
+        assertFalse(result.active());
     }
 
     @Test

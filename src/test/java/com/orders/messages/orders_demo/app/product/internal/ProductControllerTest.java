@@ -36,6 +36,7 @@ import com.orders.messages.orders_demo.app.product.api.ChangePriceRequest;
 import com.orders.messages.orders_demo.app.product.api.CreateProductRequest;
 import com.orders.messages.orders_demo.app.product.api.DecreaseStockRequest;
 import com.orders.messages.orders_demo.app.product.api.IncreaseStockRequest;
+import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
@@ -64,7 +65,7 @@ public class ProductControllerTest {
 
     @Test
     public void getProduct_WhenProductExists_ShouldReturn200() throws Exception {
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.getProduct(productId)).thenReturn(product);
 
         mvc.perform(get("/api/v1/products/{productId}", productId))
@@ -102,7 +103,7 @@ public class ProductControllerTest {
     @Test
     public void createProduct_WhenRequestIsValid_ShouldReturn201() throws Exception {
         CreateProductRequest request = createProductRequest();
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(product);
 
         mvc.perform(post("/api/v1/products")
@@ -140,7 +141,7 @@ public class ProductControllerTest {
                 .currency(Currency.MXN)
                 .quantity(DEFAULT_QUANTITY)
                 .build();
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(product);
 
         mvc.perform(post("/api/v1/products")
@@ -163,7 +164,7 @@ public class ProductControllerTest {
                 .currency(Currency.MXN)
                 .quantity(DEFAULT_QUANTITY)
                 .build();
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(product);
 
         mvc.perform(post("/api/v1/products")
@@ -186,7 +187,7 @@ public class ProductControllerTest {
                 .currency(Currency.MXN)
                 .quantity(DEFAULT_QUANTITY)
                 .build();
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(product);
 
         mvc.perform(post("/api/v1/products")
@@ -209,7 +210,7 @@ public class ProductControllerTest {
                 .currency(Currency.MXN)
                 .quantity(DEFAULT_QUANTITY)
                 .build();
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(product);
 
         mvc.perform(post("/api/v1/products")
@@ -232,7 +233,7 @@ public class ProductControllerTest {
                 .currency(null)
                 .quantity(DEFAULT_QUANTITY)
                 .build();
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(product);
 
         mvc.perform(post("/api/v1/products")
@@ -255,7 +256,7 @@ public class ProductControllerTest {
                 .currency(Currency.MXN)
                 .quantity(-1L)
                 .build();
-        ProductEntity product = createProduct();
+        ProductResponse product = createProduct();
         when(productService.createProduct(any(CreateProductRequest.class))).thenReturn(product);
 
         mvc.perform(post("/api/v1/products")
@@ -270,8 +271,10 @@ public class ProductControllerTest {
 
     @Test
     public void changePrice_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.changePrice(new BigDecimal("250.00"));
+        ProductResponse updated = createProduct()
+                .toBuilder()
+                .price(new BigDecimal("250.00"))
+                .build();
         when(productService.changePrice(eq(productId), any(BigDecimal.class)))
                 .thenReturn(updated);
 
@@ -287,7 +290,7 @@ public class ProductControllerTest {
     @ParameterizedTest
     @ValueSource(strings = { "-1.00", "0.00" })
     public void changePrice_WhenChangePriceIsNegativeOrZero_ShouldReturn400(String price) throws Exception {
-        ProductEntity updated = createProduct();
+        ProductResponse updated = createProduct();
         when(productService.changePrice(eq(productId), any(BigDecimal.class)))
                 .thenReturn(updated);
 
@@ -320,8 +323,9 @@ public class ProductControllerTest {
 
     @Test
     public void increaseStock_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.increaseStock(20);
+        ProductResponse updated = createProduct().toBuilder()
+                .quantity(30)
+                .build();
         when(productService.increaseStock(productId, 20L)).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/increase-stock", productId)
@@ -336,7 +340,7 @@ public class ProductControllerTest {
     @ParameterizedTest
     @ValueSource(ints = { -1, 0 })
     public void increaseStock_WhenStockChangeIsNegativeOrZero_ShouldReturn400(int stock) throws Exception {
-        ProductEntity updated = createProduct();
+        ProductResponse updated = createProduct();
         when(productService.increaseStock(eq(productId), any(Long.class)))
                 .thenReturn(updated);
 
@@ -369,8 +373,9 @@ public class ProductControllerTest {
 
     @Test
     public void decreaseStock_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.decreaseStock(5);
+        ProductResponse updated = createProduct().toBuilder()
+                .quantity(5)
+                .build();
         when(productService.decreaseStock(productId, 5L)).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/decrease-stock", productId)
@@ -385,7 +390,7 @@ public class ProductControllerTest {
     @ParameterizedTest
     @ValueSource(ints = { -1, 0 })
     public void decreaseStock_WhenStockChangeIsNegativeOrZero_ShouldReturn400(int stock) throws Exception {
-        ProductEntity updated = createProduct();
+        ProductResponse updated = createProduct();
         when(productService.decreaseStock(eq(productId), any(Long.class)))
                 .thenReturn(updated);
 
@@ -418,10 +423,10 @@ public class ProductControllerTest {
 
     @Test
     public void changeCurrency_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.changeCurrency(Currency.USD);
-        when(productService.changeCurrency(productId, Currency.USD))
-                .thenReturn(updated);
+        ProductResponse updated = createProduct().toBuilder()
+                .currency(Currency.USD)
+                .build();
+        when(productService.changeCurrency(productId, Currency.USD)).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/currency", productId)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -434,7 +439,7 @@ public class ProductControllerTest {
 
     @Test
     public void changeCurrency_WhenCurrencyIsInvalid_ShouldReturn400() throws Exception {
-        ProductEntity updated = createProduct();
+        ProductResponse updated = createProduct();
         when(productService.changeCurrency(eq(productId), any(Currency.class))).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/currency", productId)
@@ -465,8 +470,9 @@ public class ProductControllerTest {
 
     @Test
     public void changeName_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.changeName("New Product Name");
+        ProductResponse updated = createProduct().toBuilder()
+                .name("New Product Name")
+                .build();
         when(productService.changeName(productId, "New Product Name"))
                 .thenReturn(updated);
 
@@ -480,7 +486,7 @@ public class ProductControllerTest {
 
     @Test
     public void changeName_WhenNameIsInvalid_ShouldReturn400() throws Exception {
-        ProductEntity updated = createProduct();
+        ProductResponse updated = createProduct();
         when(productService.changeName(eq(productId), any(String.class))).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/name", productId)
@@ -511,8 +517,9 @@ public class ProductControllerTest {
 
     @Test
     public void changeDescription_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.changeDescription("New Description");
+        ProductResponse updated = createProduct().toBuilder()
+                .description("New Description")
+                .build();
         when(productService.changeDescription(productId, "New Description"))
                 .thenReturn(updated);
 
@@ -526,7 +533,7 @@ public class ProductControllerTest {
 
     @Test
     public void changeDescription_WhenDescriptionIsInvalid_ShouldReturn400() throws Exception {
-        ProductEntity updated = createProduct();
+        ProductResponse updated = createProduct();
         when(productService.changeDescription(eq(productId), any(String.class))).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/description", productId)
@@ -557,8 +564,9 @@ public class ProductControllerTest {
 
     @Test
     public void activate_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.activate();
+        ProductResponse updated = createProduct().toBuilder()
+                .active(true)
+                .build();
         when(productService.activate(productId)).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/activate", productId))
@@ -581,8 +589,9 @@ public class ProductControllerTest {
 
     @Test
     public void deactivate_WhenRequestIsValid_ShouldReturn200() throws Exception {
-        ProductEntity updated = createProduct();
-        updated.deactivate();
+        ProductResponse updated = createProduct().toBuilder()
+                .active(false)
+                .build();
         when(productService.deactivate(productId)).thenReturn(updated);
 
         mvc.perform(patch("/api/v1/products/{productId}/deactivate", productId))
@@ -622,8 +631,8 @@ public class ProductControllerTest {
                 .andExpect(status().isNotFound());
     }
 
-    private static ProductEntity createProduct() {
-        return ProductEntity.builder()
+    private static ProductResponse createProduct() {
+        return ProductResponse.builder()
                 .sku(DEFAULT_SKU)
                 .name(DEFAULT_NAME)
                 .description(DEFAULT_DESCRIPTION)
