@@ -12,8 +12,7 @@ import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
-import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
-import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
+import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
 @Service
@@ -21,14 +20,14 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final CustomerInternalApi customerInternalApi;
-    private final ProductRepository productRepository;
+    private final ProductInternalApi productInternalApi;
 
     public OrderService(OrderRepository repository,
             CustomerInternalApi customerInternalApi,
-            ProductRepository productRepository) {
+            ProductInternalApi productInternalApi) {
         this.orderRepository = repository;
         this.customerInternalApi = customerInternalApi;
-        this.productRepository = productRepository;
+        this.productInternalApi = productInternalApi;
     }
 
     /**
@@ -122,20 +121,14 @@ public class OrderService {
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
     private OrderResponse restoreProductsStock(UUID id, Consumer<OrderEntity> action) {
-        OrderEntity order = orderRepository.findById(id)
-                .orElseThrow(OrderNotFoundException::new);
+        OrderEntity order = orderRepository.findById(id).orElseThrow(OrderNotFoundException::new);
 
         action.accept(order);
 
         // TODO: Optimize product loading using findBySkuIn(...) and saveAll() to avoid
         // N+1 queries for large orders.
         for (OrderItemEntity item : order.getItems()) {
-            ProductEntity product = productRepository.findBySku(item.getSku())
-                    .orElseThrow(() -> new ProductNotFoundException(item.getSku()));
-
-            product.increaseStock(item.getQuantity());
-
-            productRepository.save(product);
+            productInternalApi.increaceProductStock(item.getSku(), item.getQuantity());
         }
 
         return OrderMapper.toResponse(orderRepository.save(order));

@@ -17,13 +17,12 @@ public class ProductInternalApiImpl implements ProductInternalApi {
     }
 
     @Override
-    public ProductEntity getProductBySku(String sku) {
-        return productRepository.findBySku(sku).orElseThrow(ProductNotFoundException::new);
-    }
+    public void increaceProductStock(String sku, long quantity) {
+        ProductEntity product = productRepository.findBySku(sku).orElseThrow(ProductNotFoundException::new);
 
-    @Override
-    public ProductEntity saveProduct(ProductEntity product) {
-        return productRepository.save(product);
+        product.increaseStock(quantity);
+
+        productRepository.save(product);
     }
 
 }
