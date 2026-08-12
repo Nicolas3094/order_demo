@@ -13,7 +13,7 @@ import org.junit.jupiter.params.provider.EnumSource.Mode;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 
 public class OrderItemEntityTest {
 
@@ -50,10 +50,10 @@ public class OrderItemEntityTest {
         OrderItemEntity orderItem = createOrderItemWithOrderStatus();
         order.addItem(orderItem);
 
-        InvalidOrderItemStateException result = assertThrows(InvalidOrderItemStateException.class,
+        InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> orderItem.changeUnitPrice(new BigDecimal("213.00")));
 
-        assertEquals("Only pending orders can modify items.", result.getMessage());
+        assertEquals("Only pending orders can be modified.", result.getMessage());
     }
 
     @Test
@@ -76,10 +76,10 @@ public class OrderItemEntityTest {
         OrderItemEntity orderItem = createOrderItemWithOrderStatus();
         order.addItem(orderItem);
 
-        InvalidOrderItemStateException result = assertThrows(InvalidOrderItemStateException.class,
+        InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> orderItem.changeQuantity(10L));
 
-        assertEquals("Only pending orders can modify items.", result.getMessage());
+        assertEquals("Only pending orders can be modified.", result.getMessage());
     }
 
     @Test

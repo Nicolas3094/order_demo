@@ -1,7 +1,7 @@
 package com.orders.messages.orders_demo.app.order_item.internal;
 
 import com.orders.messages.orders_demo.app.order_item.api.OrderItemResponse;
-import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
+import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 
 public final class OrderItemMapper {
 
@@ -16,11 +16,11 @@ public final class OrderItemMapper {
                 item.getLineTotal());
     }
 
-    public static OrderItemEntity toEntity(long quantity, ProductEntity product) {
+    public static OrderItemEntity toEntity(long quantity, ProductResponse product) {
         return OrderItemEntity.builder()
-                .sku(product.getSku())
-                .description(product.getDescription())
-                .unitPrice(product.getPrice())
+                .sku(product.sku())
+                .description(product.description())
+                .unitPrice(product.price())
                 .quantity(quantity)
                 .build();
     }

@@ -14,8 +14,8 @@ import com.orders.messages.orders_demo.app.order_item.api.CreateOrderItemRequest
 import com.orders.messages.orders_demo.app.order_item.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
 import com.orders.messages.orders_demo.app.order_item.internal.exceptions.OrderItemNotFoundException;
-import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
-import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
+import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
+import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
@@ -24,17 +24,17 @@ import jakarta.transaction.Transactional;
 @Service
 public class OrderItemService {
 
+    private final ProductInternalApi productInternalApi;
     private final OrderRepository orderRepository;
-    private final ProductRepository productRepository;
     private final OrderItemRepository orderItemRepository;
 
     public OrderItemService(
             OrderItemRepository orderItemRepository,
             OrderRepository orderRepository,
-            ProductRepository productRepository) {
+            ProductInternalApi productInternalApi) {
         this.orderItemRepository = orderItemRepository;
         this.orderRepository = orderRepository;
-        this.productRepository = productRepository;
+        this.productInternalApi = productInternalApi;
     }
 
     /**
@@ -88,21 +88,22 @@ public class OrderItemService {
     public OrderItemResponse createOrderItem(UUID orderId, CreateOrderItemRequest request) {
         OrderEntity order = findOrder(orderId);
 
-        validatePendingOrder(order);
+        order.validateCanAcceptPayments();
 
-        ProductEntity product = findProduct(request.sku());
+        ProductResponse productResponse = productInternalApi.getProductBySku(request.sku());
 
-        validateProductIsActive(product);
+        order.validateCurrency(productResponse.currency());
 
-        order.validateCurrency(product);
+        if (!productResponse.active()) {
+            throw new InvalidProductException(
+                    "Product with SKU " + productResponse.sku() + " is not active.");
+        }
 
-        product.decreaseStock(request.quantity());
+        productInternalApi.decreaceProductStock(request.sku(), request.quantity());
 
-        OrderItemEntity item = OrderItemMapper.toEntity(request.quantity(), product);
+        OrderItemEntity item = OrderItemMapper.toEntity(request.quantity(), productResponse);
 
         order.addItem(item);
-
-        productRepository.save(product);
 
         orderRepository.save(order);
 
@@ -150,7 +151,6 @@ public class OrderItemService {
     @Transactional
     public OrderItemResponse changeQuantity(UUID orderId, UUID orderItemId, Long quantity) {
         return updateOrderItemState(orderId, orderItemId, orderItem -> {
-            ProductEntity product = findProduct(orderItem.getSku());
 
             Long initialQuantity = orderItem.getQuantity();
 
@@ -159,13 +159,9 @@ public class OrderItemService {
             long delta = quantity - initialQuantity;
 
             if (delta > 0) {
-                product.decreaseStock(delta);
-
-                productRepository.save(product);
+                productInternalApi.decreaceProductStock(orderItem.getSku(), delta);
             } else if (delta < 0) {
-                product.increaseStock(-delta);
-
-                productRepository.save(product);
+                productInternalApi.increaceProductStock(orderItem.getSku(), -delta);
             }
 
         });
@@ -177,15 +173,11 @@ public class OrderItemService {
 
         OrderEntity order = orderItem.getOrder();
 
-        validatePendingOrder(order);
-
-        ProductEntity product = findProduct(orderItem.getSku());
-
-        product.increaseStock(orderItem.getQuantity());
+        order.validateCanAcceptPayments();
 
         order.removeItem(orderItem);
 
-        productRepository.save(product);
+        productInternalApi.increaceProductStock(orderItem.getSku(), orderItem.getQuantity());
 
         orderRepository.save(order);
     }
@@ -210,42 +202,6 @@ public class OrderItemService {
         action.accept(orderItem);
 
         return OrderItemMapper.toResponse(orderItemRepository.save(orderItem));
-    }
-
-    /**
-     * Validates if an Order has Pending status.
-     * 
-     * @param order Thhe order.
-     */
-    private void validatePendingOrder(OrderEntity order) {
-        if (!order.canAcceptPayments()) {
-            throw new InvalidOrderItemStateException("Only pending orders can modify items.");
-        }
-    }
-
-    /**
-     * Finds the product if it exists, otherwise throws a
-     * {@link ProductNotFoundException}.
-     *
-     * @param sku The product SKU.
-     * 
-     * @return A complete Product object.
-     */
-    private ProductEntity findProduct(String sku) {
-        return productRepository.findBySku(sku)
-                .orElseThrow(() -> new ProductNotFoundException(sku));
-    }
-
-    /**
-     * Validates if a product is active.
-     *
-     * @param product The product to validate.
-     */
-    private void validateProductIsActive(ProductEntity product) {
-        if (!product.getActive()) {
-            throw new InvalidProductException(
-                    "Product with SKU " + product.getSku() + " is not active.");
-        }
     }
 
     /**

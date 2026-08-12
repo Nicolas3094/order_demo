@@ -133,12 +133,25 @@ public class ProductEntity {
         this.currency = Objects.requireNonNull(currency, "Currency must not be null.");
     }
 
+    /**
+     * Increases the available stock for this product.
+     *
+     * @param quantity the quantity to add to stock.
+     * @throws IllegalArgumentException if the quantity is zero or negative.
+     */
     public void increaseStock(long quantity) {
         validatePositiveQuantity(quantity);
 
         this.quantity += quantity;
     }
 
+    /**
+     * Decreases the available stock for this product.
+     *
+     * @param quantity the quantity to subtract from stock.
+     * @throws IllegalArgumentException   if the quantity is zero or negative.
+     * @throws InsufficientStockException if there is not enough stock.
+     */
     public void decreaseStock(long quantity) {
         validatePositiveQuantity(quantity);
 
@@ -149,6 +162,14 @@ public class ProductEntity {
         this.quantity -= quantity;
     }
 
+    /**
+     * Checks whether the product has enough stock for a requested quantity.
+     *
+     * @param quantity the quantity to validate.
+     * @return true when stock is sufficient.
+     * @throws IllegalArgumentException if the quantity is zero or negative.
+     * @throws InvalidProductException  if there is not enough stock.
+     */
     public boolean hasEnoughStock(long quantity) {
         validatePositiveQuantity(quantity);
 

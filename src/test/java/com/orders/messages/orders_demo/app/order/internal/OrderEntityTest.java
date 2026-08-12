@@ -16,7 +16,6 @@ import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
 import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
-import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderEntityTest {
@@ -277,29 +276,17 @@ public class OrderEntityTest {
 
     @Test
     public void validateCurrency_WhenProductCurrencyMatchesOrderCurrency_ShouldReturnTrue() {
-        ProductEntity product = ProductEntity.builder()
-                .sku("SKU")
-                .name("Product")
-                .price(new BigDecimal("100.00"))
-                .currency(Currency.MXN)
-                .build();
 
-        boolean result = fakeOrder.validateCurrency(product);
+        boolean result = fakeOrder.validateCurrency(Currency.MXN);
 
         assertEquals(true, result);
     }
 
     @Test
     public void validateCurrency_WhenProductCurrencyDoesNotMatchOrderCurrency_ShouldThrowInvalidProductException() {
-        ProductEntity product = ProductEntity.builder()
-                .sku("SKU")
-                .name("Product")
-                .price(new BigDecimal("100.00"))
-                .currency(Currency.USD)
-                .build();
 
         InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
-                () -> fakeOrder.validateCurrency(product));
+                () -> fakeOrder.validateCurrency(Currency.USD));
 
         assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
     }

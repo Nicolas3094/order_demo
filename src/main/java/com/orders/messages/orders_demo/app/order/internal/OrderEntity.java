@@ -17,7 +17,6 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlread
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyExpiredException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.app.order_item.internal.OrderItemEntity;
-import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -157,8 +156,10 @@ public class OrderEntity {
         changeStatusFromPending(OrderStatus.EXPIRED);
     }
 
-    public boolean canAcceptPayments() {
-        return OrderStatus.PENDING_PAYMENT.equals(status);
+    public void validateCanAcceptPayments() {
+        if (!OrderStatus.PENDING_PAYMENT.equals(status)) {
+            throw new InvalidOrderStateException("Only pending orders can be modified.");
+        }
     }
 
     public void refund() {
@@ -172,9 +173,9 @@ public class OrderEntity {
         }
     }
 
-    public boolean validateCurrency(ProductEntity product) {
-        if (!this.currency.equals(product.getCurrency())) {
-            throw new InvalidOrderStateException("Product currency " + product.getCurrency()
+    public boolean validateCurrency(Currency currency) {
+        if (!this.currency.equals(currency)) {
+            throw new InvalidOrderStateException("Product currency " + currency
                     + " does not match order currency " + this.currency + ".");
         }
         return true;

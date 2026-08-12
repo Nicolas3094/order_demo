@@ -29,6 +29,7 @@ import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNo
 
 @ExtendWith(MockitoExtension.class)
 public class ProductServiceTest {
+
     private static final String PRODUCT_NOT_FOUND_MESSAGE = "Product could not be found.";
     private static final String DUPLICATED_SKU_MESSAGE = "Product must have unique SKU.";
     private static final String DEFAULT_SKU = "SKU-001";
@@ -54,13 +55,13 @@ public class ProductServiceTest {
 
     @Test
     public void getProduct_WhenProductFound_ShouldReturnProduct() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
 
         ProductResponse result = productService.getProduct(productId);
 
-        assertEquals(product, result);
         verify(productRepository).findById(productId);
+        assertEquals(productId, result.id());
     }
 
     @Test
@@ -75,8 +76,8 @@ public class ProductServiceTest {
     @Test
     public void getAllProducts_ShouldReturnProducts() {
 
-        List<ProductEntity> products = List.of(createProduct(),
-                createProduct().toBuilder()
+        List<ProductEntity> products = List.of(createProduct(productId),
+                createProduct(UUID.randomUUID()).toBuilder()
                         .sku("SKU-002")
                         .name("Other")
                         .build());
@@ -84,7 +85,9 @@ public class ProductServiceTest {
 
         List<ProductResponse> result = productService.getAllProducts();
 
-        assertEquals(products, result);
+        assertEquals(2, result.size());
+        assertEquals(products.get(0).getId(), result.get(0).id());
+        assertEquals(products.get(1).getId(), result.get(1).id());
         verify(productRepository).findAll();
     }
 
@@ -119,7 +122,7 @@ public class ProductServiceTest {
 
     @Test
     public void deleteProduct_WhenProductFound_ShouldDeleteProduct() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId))
                 .thenReturn(Optional.of(product));
 
@@ -140,7 +143,7 @@ public class ProductServiceTest {
     @Test
     public void changePrice_WhenProductFound_ShouldChangePrice() {
         BigDecimal newPrice = new BigDecimal("250.00");
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -163,7 +166,7 @@ public class ProductServiceTest {
 
     @Test
     public void increaseStock_WhenProductFound_ShouldIncreaseStock() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -186,7 +189,7 @@ public class ProductServiceTest {
 
     @Test
     public void decreaseStock_WhenProductFound_ShouldDecreaseStock() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -209,7 +212,7 @@ public class ProductServiceTest {
 
     @Test
     public void changeCurrency_WhenProductFound_ShouldChangeCurrency() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -232,7 +235,7 @@ public class ProductServiceTest {
 
     @Test
     public void changeName_WhenProductFound_ShouldChangeName() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -255,7 +258,7 @@ public class ProductServiceTest {
 
     @Test
     public void changeDescription_WhenProductFound_ShouldChangeDescription() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -278,7 +281,7 @@ public class ProductServiceTest {
 
     @Test
     public void activate_WhenProductFound_ShouldActivateProduct() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         product.deactivate();
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -302,7 +305,7 @@ public class ProductServiceTest {
 
     @Test
     public void deactivate_WhenProductFound_ShouldDeactivateProduct() {
-        ProductEntity product = createProduct();
+        ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
         when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -323,8 +326,9 @@ public class ProductServiceTest {
         verify(productRepository, never()).save(any(ProductEntity.class));
     }
 
-    private static ProductEntity createProduct() {
+    private static ProductEntity createProduct(UUID id) {
         return ProductEntity.builder()
+                .id(id)
                 .sku(DEFAULT_SKU)
                 .name(DEFAULT_NAME)
                 .description(DEFAULT_DESCRIPTION)

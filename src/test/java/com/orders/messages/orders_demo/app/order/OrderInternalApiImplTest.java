@@ -127,7 +127,7 @@ public class OrderInternalApiImplTest {
                 InvalidOrderStateException.class,
                 () -> orderInternalApi.validateCanReceivePayment(ORDER_ID));
 
-        assertEquals("This order cannot receive payment attempts.", result.getMessage());
+        assertEquals("Only pending orders can be modified.", result.getMessage());
     }
 
     @Test
@@ -167,7 +167,7 @@ public class OrderInternalApiImplTest {
         InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> orderInternalApi.getOrderDataForPayment(ORDER_ID));
 
-        assertEquals("This order cannot receive payment attempts.", result.getMessage());
+        assertEquals("Only pending orders can be modified.", result.getMessage());
     }
 
     @Test

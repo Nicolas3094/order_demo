@@ -5,7 +5,6 @@ import java.util.Objects;
 import java.util.UUID;
 
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
-import com.orders.messages.orders_demo.app.order_item.internal.exceptions.InvalidOrderItemStateException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -115,9 +114,7 @@ public class OrderItemEntity {
             throw new IllegalStateException("OrderItem is not attached to an Order.");
         }
 
-        if (!order.canAcceptPayments()) {
-            throw new InvalidOrderItemStateException("Only pending orders can modify items.");
-        }
+        order.validateCanAcceptPayments();
     }
 
     private void updateLineTotal() {

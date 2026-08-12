@@ -10,7 +10,6 @@ import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderMapper;
 import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
-import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
 @Service
@@ -41,19 +40,14 @@ public class OrderInternalApiImpl implements OrderInternalApi {
     public void validateCanReceivePayment(UUID id) {
         OrderEntity order = getOrder(id);
 
-        if (!order.canAcceptPayments()) {
-            throw new InvalidOrderStateException("This order cannot receive payment attempts.");
-        }
+        order.validateCanAcceptPayments();
     }
 
     @Override
     public OrderData getOrderDataForPayment(UUID orderId) {
         OrderEntity order = getOrder(orderId);
 
-        if (!order.canAcceptPayments()) {
-            throw new InvalidOrderStateException(
-                    "This order cannot receive payment attempts.");
-        }
+        order.validateCanAcceptPayments();
 
         return new OrderData(
                 order.getId(),

@@ -4,5 +4,4 @@ public class InsufficientStockException extends InvalidProductException {
     public InsufficientStockException() {
         super("Insufficient stock.");
     }
-
 }
