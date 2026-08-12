@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -18,6 +19,7 @@ import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.customer.api.CreateCustomerRequest;
+import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerBlockedException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerStateException;
@@ -48,47 +50,52 @@ public class CustomerServiceTest {
         when(customerRepository.findAll())
                 .thenReturn(List.of(createActiveCustomer(customerId), createActiveCustomer(customerId_2)));
 
-        java.util.List<CustomerEntity> result = customerService.getAllCustomers();
+        List<CustomerResponse> result = customerService.getAllCustomers();
 
         assertEquals(2, result.size());
-        assertEquals(customerId, result.get(0).getId());
-        assertEquals(customerId_2, result.get(1).getId());
-        assertEquals(DEFAULT_EMAIL, result.get(0).getEmail());
-        assertEquals(DEFAULT_NAME, result.get(0).getName());
-        assertEquals(CustomerStatus.ACTIVE, result.get(0).getStatus());
+        assertEquals(customerId, result.get(0).id());
+        assertEquals(customerId_2, result.get(1).id());
+        assertEquals(DEFAULT_EMAIL, result.get(0).email());
+        assertEquals(DEFAULT_NAME, result.get(0).name());
+        assertEquals(CustomerStatus.ACTIVE, result.get(0).status());
     }
 
     @Test
     public void getCustomer_WhenCustomerFound_ShouldReturnCustomer() {
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(createActiveCustomer(customerId)));
 
-        CustomerEntity result = customerService.getCustomer(customerId);
+        CustomerResponse result = customerService.getCustomer(customerId);
 
-        assertEquals(customerId, result.getId());
-        assertEquals(DEFAULT_EMAIL, result.getEmail());
-        assertEquals(DEFAULT_NAME, result.getName());
-        assertEquals(CustomerStatus.ACTIVE, result.getStatus());
+        assertEquals(customerId, result.id());
+        assertEquals(DEFAULT_EMAIL, result.email());
+        assertEquals(DEFAULT_NAME, result.name());
+        assertEquals(CustomerStatus.ACTIVE, result.status());
     }
 
     @Test
     public void getCustomer_WhenCustomerNotFound_ShouldThrowCustomerNotFoundException() {
         when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
 
-        Exception result = assertThrows(CustomerNotFoundException.class, () -> customerService.getCustomer(customerId));
+        CustomerNotFoundException result = assertThrows(CustomerNotFoundException.class,
+                () -> customerService.getCustomer(customerId));
 
         assertEquals("Customer could not be found.", result.getMessage());
     }
 
     @Test
     public void createCustomer_ShouldSaveEntity() {
+        ArgumentCaptor<CustomerEntity> customerCaptor = ArgumentCaptor.forClass(CustomerEntity.class);
         when(customerRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CustomerEntity result = customerService.createCustomer(DEFAULT_REQUEST);
+        CustomerResponse result = customerService.createCustomer(DEFAULT_REQUEST);
 
-        verify(customerRepository).save(result);
-        assertEquals(DEFAULT_EMAIL, result.getEmail());
-        assertEquals(DEFAULT_NAME, result.getName());
-        assertEquals(CustomerStatus.ACTIVE, result.getStatus());
+        verify(customerRepository).save(customerCaptor.capture());
+        assertEquals(DEFAULT_EMAIL, customerCaptor.getValue().getEmail());
+        assertEquals(DEFAULT_NAME, customerCaptor.getValue().getName());
+        assertEquals(CustomerStatus.ACTIVE, customerCaptor.getValue().getStatus());
+        assertEquals(DEFAULT_EMAIL, result.email());
+        assertEquals(DEFAULT_NAME, result.name());
+        assertEquals(CustomerStatus.ACTIVE, result.status());
     }
 
     @Test
@@ -97,20 +104,20 @@ public class CustomerServiceTest {
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
         when(customerRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CustomerEntity result = customerService.deactivateCustomer(customerId);
+        CustomerResponse result = customerService.deactivateCustomer(customerId);
 
         verify(customerRepository).save(customer);
-        assertEquals(customerId, result.getId());
-        assertEquals(DEFAULT_EMAIL, result.getEmail());
-        assertEquals(DEFAULT_NAME, result.getName());
-        assertEquals(CustomerStatus.BLOCKED, result.getStatus());
+        assertEquals(customerId, result.id());
+        assertEquals(DEFAULT_EMAIL, result.email());
+        assertEquals(DEFAULT_NAME, result.name());
+        assertEquals(CustomerStatus.BLOCKED, result.status());
     }
 
     @Test
     public void deactivateCustomer_WhenNotCustomerFound_ShouldThrowCustomerNotFoundException() {
         when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
 
-        Exception result = assertThrows(CustomerNotFoundException.class,
+        CustomerNotFoundException result = assertThrows(CustomerNotFoundException.class,
                 () -> customerService.deactivateCustomer(customerId));
 
         assertEquals("Customer could not be found.", result.getMessage());
@@ -121,7 +128,7 @@ public class CustomerServiceTest {
         CustomerEntity customer = createBlockedCustomer(customerId);
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
 
-        Exception result = assertThrows(CustomerBlockedException.class,
+        CustomerBlockedException result = assertThrows(CustomerBlockedException.class,
                 () -> customerService.deactivateCustomer(customerId));
 
         assertEquals("Blocked customer cannot be modified.", result.getMessage());
@@ -134,20 +141,20 @@ public class CustomerServiceTest {
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
         when(customerRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CustomerEntity result = customerService.activateCustomer(customerId);
+        CustomerResponse result = customerService.activateCustomer(customerId);
 
         verify(customerRepository).save(customer);
-        assertEquals(customerId, result.getId());
-        assertEquals(DEFAULT_EMAIL, result.getEmail());
-        assertEquals(DEFAULT_NAME, result.getName());
-        assertEquals(CustomerStatus.ACTIVE, result.getStatus());
+        assertEquals(customerId, result.id());
+        assertEquals(DEFAULT_EMAIL, result.email());
+        assertEquals(DEFAULT_NAME, result.name());
+        assertEquals(CustomerStatus.ACTIVE, result.status());
     }
 
     @Test
     public void activateCustomer_WhenNotCustomerFound_ShouldThrowCustomerNotFoundException() {
         when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
 
-        Exception result = assertThrows(CustomerNotFoundException.class,
+        CustomerNotFoundException result = assertThrows(CustomerNotFoundException.class,
                 () -> customerService.activateCustomer(customerId));
 
         assertEquals("Customer could not be found.", result.getMessage());
@@ -158,7 +165,7 @@ public class CustomerServiceTest {
         CustomerEntity customer = createActiveCustomer(customerId);
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
 
-        Exception result = assertThrows(CustomerStateException.class,
+        CustomerStateException result = assertThrows(CustomerStateException.class,
                 () -> customerService.activateCustomer(customerId));
 
         assertEquals("Customer is already active.", result.getMessage());

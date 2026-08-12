@@ -2,7 +2,6 @@ package com.orders.messages.orders_demo.app.customer.internal;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -31,40 +30,29 @@ public class CustomerController {
 
     @GetMapping
     public ResponseEntity<List<CustomerResponse>> getAllCustomers() {
-        return ResponseEntity.ok(
-                customerService.getAllCustomers()
-                        .stream()
-                        .map(CustomerMapper::toResponse)
-                        .collect(Collectors.toList()));
+        return ResponseEntity.ok(customerService.getAllCustomers());
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<CustomerResponse> getCustomer(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                CustomerMapper.toResponse(
-                        customerService.getCustomer(id)));
+        return ResponseEntity.ok(customerService.getCustomer(id));
     }
 
     @PostMapping
     public ResponseEntity<CustomerResponse> createCustomer(
             @Valid @RequestBody CreateCustomerRequest createCustomerRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(CustomerMapper.toResponse(
-                        customerService.createCustomer(createCustomerRequest)));
+                .body(customerService.createCustomer(createCustomerRequest));
     }
 
     @PatchMapping("/{id}/activate")
     public ResponseEntity<CustomerResponse> activateCustomer(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                CustomerMapper.toResponse(
-                        customerService.activateCustomer(id)));
+        return ResponseEntity.ok(customerService.activateCustomer(id));
     }
 
     @PatchMapping("/{id}/block")
     public ResponseEntity<CustomerResponse> blockCustomer(@PathVariable UUID id) {
-        return ResponseEntity.ok(
-                CustomerMapper.toResponse(
-                        customerService.deactivateCustomer(id)));
+        return ResponseEntity.ok(customerService.deactivateCustomer(id));
     }
 
 }

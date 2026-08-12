@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.app.customer.internal;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orders.messages.orders_demo.app.customer.api.CreateCustomerRequest;
+import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerBlockedException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerStateException;
@@ -52,7 +54,7 @@ public class CustomerControllerTest {
     public void getAllCustomers_ShouldReturn200() throws Exception {
         UUID customerId_2 = UUID.randomUUID();
         when(customerService.getAllCustomers())
-                .thenReturn(java.util.List.of(createActiveCustomer(customerId), createActiveCustomer(customerId_2)));
+                .thenReturn(List.of(createActiveCustomer(customerId), createActiveCustomer(customerId_2)));
 
         mvc.perform(get("/api/v1/customers")).andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
@@ -69,7 +71,7 @@ public class CustomerControllerTest {
 
     @Test
     public void getCustomer_ShouldReturn200() throws Exception {
-        CustomerEntity customer = createActiveCustomer(customerId);
+        CustomerResponse customer = createActiveCustomer(customerId);
         when(customerService.getCustomer(customerId)).thenReturn(customer);
 
         mvc.perform(get("/api/v1/customers/{id}", customerId)).andExpect(status().isOk())
@@ -98,7 +100,7 @@ public class CustomerControllerTest {
 
     @Test
     public void createCustomer_WhenRequestIsValid_ShouldReturn201() throws Exception {
-        CustomerEntity customer = createActiveCustomer(customerId);
+        CustomerResponse customer = createActiveCustomer(customerId);
         when(customerService.createCustomer(validCreateCustomerRequest)).thenReturn(customer);
 
         mvc.perform(post("/api/v1/customers")
@@ -163,7 +165,7 @@ public class CustomerControllerTest {
 
     @Test
     public void activateCustomer_ShouldReturn200() throws Exception {
-        CustomerEntity customer = createActiveCustomer(customerId);
+        CustomerResponse customer = createActiveCustomer(customerId);
         when(customerService.activateCustomer(customerId)).thenReturn(customer);
 
         mvc.perform(patch("/api/v1/customers/{id}/activate", customerId))
@@ -206,7 +208,7 @@ public class CustomerControllerTest {
 
     @Test
     public void blockCustomer_ShouldReturn200() throws Exception {
-        CustomerEntity customer = createBlockedCustomer(customerId);
+        CustomerResponse customer = createBlockedCustomer(customerId);
         when(customerService.deactivateCustomer(customerId)).thenReturn(customer);
 
         mvc.perform(patch("/api/v1/customers/{id}/block", customerId))
@@ -251,12 +253,22 @@ public class CustomerControllerTest {
         return new CreateCustomerRequest(DEFAULT_EMAIL, DEFAULT_NAME);
     }
 
-    private static CustomerEntity createActiveCustomer(UUID customerId) {
-        return new CustomerEntity(customerId, DEFAULT_EMAIL, DEFAULT_NAME, CustomerStatus.ACTIVE);
+    private static CustomerResponse createActiveCustomer(UUID customerId) {
+        return CustomerResponse.builder()
+                .id(customerId)
+                .email(DEFAULT_EMAIL)
+                .name(DEFAULT_NAME)
+                .status(CustomerStatus.ACTIVE)
+                .build();
     }
 
-    private static CustomerEntity createBlockedCustomer(UUID customerId) {
-        return new CustomerEntity(customerId, DEFAULT_EMAIL, DEFAULT_NAME, CustomerStatus.BLOCKED);
+    private static CustomerResponse createBlockedCustomer(UUID customerId) {
+        return CustomerResponse.builder()
+                .id(customerId)
+                .email(DEFAULT_EMAIL)
+                .name(DEFAULT_NAME)
+                .status(CustomerStatus.BLOCKED)
+                .build();
     }
 
 }
