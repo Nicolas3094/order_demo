@@ -31,32 +31,32 @@ public record CustomerResponse(UUID id,
             return new CustomerResponse(id, email, name, status, version, createdAt);
         }
 
-        public Builder setId(UUID id) {
+        public Builder id(UUID id) {
             this.id = id;
             return this;
         }
 
-        public Builder setEmail(String email) {
+        public Builder email(String email) {
             this.email = email;
             return this;
         }
 
-        public Builder setName(String name) {
+        public Builder name(String name) {
             this.name = name;
             return this;
         }
 
-        public Builder setStatus(CustomerStatus status) {
+        public Builder status(CustomerStatus status) {
             this.status = status;
             return this;
         }
 
-        public Builder setVersion(Long version) {
+        public Builder version(Long version) {
             this.version = version;
             return this;
         }
 
-        public Builder setCreatedAt(Instant createdAt) {
+        public Builder createdAt(Instant createdAt) {
             this.createdAt = createdAt;
             return this;
         }

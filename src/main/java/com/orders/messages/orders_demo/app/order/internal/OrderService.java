@@ -6,8 +6,7 @@ import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
@@ -21,14 +20,14 @@ import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNo
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    private final CustomerRepository customerRepository;
+    private final CustomerInternalApi customerInternalApi;
     private final ProductRepository productRepository;
 
     public OrderService(OrderRepository repository,
-            CustomerRepository customerRepository,
+            CustomerInternalApi customerInternalApi,
             ProductRepository productRepository) {
         this.orderRepository = repository;
-        this.customerRepository = customerRepository;
+        this.customerInternalApi = customerInternalApi;
         this.productRepository = productRepository;
     }
 
@@ -64,9 +63,9 @@ public class OrderService {
      * @throws CustomerNotFoundException if the customer does not exist.
      */
     public OrderResponse createOrder(CreateOrderRequest createOrderRequest) {
-        CustomerEntity customer = findCustomerById(createOrderRequest.customerId());
+        UUID customerId = customerInternalApi.getCustomer(createOrderRequest.customerId()).id();
 
-        OrderEntity order = OrderMapper.toEntity(createOrderRequest, customer.getId());
+        OrderEntity order = OrderMapper.toEntity(createOrderRequest, customerId);
 
         return OrderMapper.toResponse(orderRepository.save(order));
     }
@@ -142,17 +141,4 @@ public class OrderService {
         return OrderMapper.toResponse(orderRepository.save(order));
 
     }
-
-    /**
-     * Retrieves a customer by its identifier.
-     *
-     * @param customerId the customer identifier.
-     * @return the requested customer.
-     * @throws CustomerNotFoundException if the customer does not exist.
-     */
-    private CustomerEntity findCustomerById(UUID customerId) {
-        return customerRepository.findById(customerId)
-                .orElseThrow(CustomerNotFoundException::new);
-    }
-
 }

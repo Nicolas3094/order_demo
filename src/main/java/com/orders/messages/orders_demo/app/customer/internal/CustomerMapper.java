@@ -6,11 +6,11 @@ import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
 public final class CustomerMapper {
     public static CustomerResponse toResponse(CustomerEntity customer) {
         return CustomerResponse.builder()
-                .setId(customer.getId())
-                .setEmail(customer.getEmail())
-                .setName(customer.getName())
-                .setStatus(customer.getStatus())
-                .setCreatedAt(customer.getCreatedAt())
+                .id(customer.getId())
+                .email(customer.getEmail())
+                .name(customer.getName())
+                .status(customer.getStatus())
+                .createdAt(customer.getCreatedAt())
                 .build();
     }
 

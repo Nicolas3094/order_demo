@@ -20,8 +20,8 @@ import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
+import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
@@ -41,7 +41,7 @@ public class OrderServiceTest {
     @Mock
     private OrderRepository orderRepository;
     @Mock
-    private CustomerRepository customerRepository;
+    private CustomerInternalApi customerInternalApi;
     @Mock
     private ProductRepository productRepository;
 
@@ -103,12 +103,17 @@ public class OrderServiceTest {
     @Test
     public void createOrder_WhenCustomerExists_ShouldSaveOrder() {
         UUID customerId = UUID.randomUUID();
-        CustomerEntity customer = new CustomerEntity(customerId, "email", "name", CustomerStatus.ACTIVE);
+        CustomerResponse customerResponse = CustomerResponse.builder()
+                .id(customerId)
+                .email("email")
+                .name("name")
+                .status(CustomerStatus.ACTIVE)
+                .build();
         CreateOrderRequest orderRequest = CreateOrderRequest.builder()
                 .customerId(customerId)
                 .currency(Currency.MXN)
                 .build();
-        when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
+        when(customerInternalApi.getCustomer(customerId)).thenReturn(customerResponse);
         when(orderRepository.save(any(OrderEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OrderResponse result = orderService.createOrder(orderRequest);
@@ -126,6 +131,7 @@ public class OrderServiceTest {
                 .customerId(customerId)
                 .currency(Currency.MXN)
                 .build();
+        when(customerInternalApi.getCustomer(customerId)).thenThrow(new CustomerNotFoundException());
 
         Exception result = assertThrows(CustomerNotFoundException.class, () -> orderService.createOrder(orderRequest));
 
