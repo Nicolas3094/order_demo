@@ -127,12 +127,11 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
-        return updatePaymentAttemptState(orderId, paymentId,
-                payment -> {
-                    payment.markAsSucceeded(providerRef);
+        return updatePaymentAttemptState(orderId, paymentId, payment -> {
+            payment.markAsSucceeded(providerRef);
 
-                    orderInternalApi.markAsPaid(orderId);
-                });
+            orderInternalApi.markAsPaid(orderId);
+        });
     }
 
     /**

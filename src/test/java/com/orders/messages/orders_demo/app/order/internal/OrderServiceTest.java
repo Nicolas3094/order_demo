@@ -4,15 +4,20 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import static org.mockito.ArgumentMatchers.any;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -27,6 +32,9 @@ import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyExpiredException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
@@ -197,6 +205,20 @@ public class OrderServiceTest {
         assertEquals("Order could not be found.", result.getMessage());
     }
 
+    @ParameterizedTest
+    @MethodSource("invalidStatesForCancel")
+    public void cancelOrder_WhenOrderCannotBeCancelled_ShouldThrowException(
+            OrderStatus status, Class<? extends Exception> exceptionType, String message) {
+        fakeOrder = createOrder(status);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+
+        Exception result = assertThrows(exceptionType,
+                () -> orderService.cancelOrder(orderId));
+
+        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+        assertEquals(message, result.getMessage());
+    }
     /*
      * 
      * expireOrder
@@ -256,6 +278,20 @@ public class OrderServiceTest {
         assertEquals("Order could not be found.", result.getMessage());
     }
 
+    @ParameterizedTest
+    @MethodSource("invalidStatesForExpire")
+    public void expireOrder_WhenOrderCannotBeExpired_ShouldThrowException(
+            OrderStatus status, Class<? extends Exception> exceptionType, String message) {
+        fakeOrder = createOrder(status);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+
+        Exception result = assertThrows(exceptionType,
+                () -> orderService.expireOrder(orderId));
+
+        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+        assertEquals(message, result.getMessage());
+    }
     /*
      * 
      * refundOrder
@@ -336,4 +372,35 @@ public class OrderServiceTest {
                 .build();
     }
 
+    private static Stream<Arguments> invalidStatesForCancel() {
+        return Stream.of(
+                Arguments.of(
+                        OrderStatus.CANCELLED,
+                        OrderAlreadyCancelledException.class,
+                        "Order is already cancelled."),
+                Arguments.of(
+                        OrderStatus.EXPIRED,
+                        OrderAlreadyExpiredException.class,
+                        "Expired orders cannot be modified."),
+                Arguments.of(
+                        OrderStatus.PAID,
+                        OrderAlreadyPaidException.class,
+                        "Paid orders cannot be modified."));
+    }
+
+    private static Stream<Arguments> invalidStatesForExpire() {
+        return Stream.of(
+                Arguments.of(
+                        OrderStatus.CANCELLED,
+                        OrderAlreadyCancelledException.class,
+                        "Order is already cancelled."),
+                Arguments.of(
+                        OrderStatus.EXPIRED,
+                        OrderAlreadyExpiredException.class,
+                        "Expired orders cannot be modified."),
+                Arguments.of(
+                        OrderStatus.PAID,
+                        OrderAlreadyPaidException.class,
+                        "Paid orders cannot be modified."));
+    }
 }
