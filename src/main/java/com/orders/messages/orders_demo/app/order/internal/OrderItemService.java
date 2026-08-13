@@ -150,18 +150,17 @@ public class OrderItemService {
     public OrderItemResponse changeQuantity(UUID orderId, UUID orderItemId, Long quantity) {
         return updateOrderItemState(orderId, orderItemId, orderItem -> {
 
-            Long initialQuantity = orderItem.getQuantity();
-
-            orderItem.changeQuantity(quantity);
-
-            long delta = quantity - initialQuantity;
+            long delta = quantity - orderItem.getQuantity();
 
             if (delta > 0) {
                 productInternalApi.decreaceProductStock(orderItem.getSku(), delta);
+
+                orderItem.changeQuantity(quantity);
             } else if (delta < 0) {
                 productInternalApi.increaceProductStock(orderItem.getSku(), -delta);
-            }
 
+                orderItem.changeQuantity(quantity);
+            }
         });
     }
 
@@ -216,6 +215,8 @@ public class OrderItemService {
      */
     private OrderItemResponse updateOrderItemState(UUID orderId, UUID orderItemId, Consumer<OrderItemEntity> action) {
         OrderItemEntity orderItem = findOrderItem(orderId, orderItemId);
+
+        orderItem.getOrder().validateCanAcceptPayments();
 
         action.accept(orderItem);
 
