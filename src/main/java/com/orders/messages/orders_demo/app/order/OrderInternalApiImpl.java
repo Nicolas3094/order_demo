@@ -3,6 +3,7 @@ package com.orders.messages.orders_demo.app.order;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
@@ -28,6 +29,7 @@ public class OrderInternalApiImpl implements OrderInternalApi {
     }
 
     @Override
+    @Transactional
     public void markAsPaid(UUID id) {
         OrderEntity order = getOrder(id);
 

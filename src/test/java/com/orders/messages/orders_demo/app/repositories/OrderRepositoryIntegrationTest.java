@@ -7,12 +7,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
@@ -21,20 +17,11 @@ import com.orders.messages.orders_demo.app.order.internal.OrderItemEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
 import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
 
-import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
-@SpringBootTest
-@Testcontainers
 @Transactional
-class OrderRepositoryIntegrationTest {
+class OrderRepositoryIntegrationTest extends PostgresContainer {
 
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16");
-
-    @Autowired
-    private EntityManager entityManager;
     @Autowired
     private CustomerRepository customerRepository;
 
@@ -87,7 +74,18 @@ class OrderRepositoryIntegrationTest {
         assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo("3501.00");
         assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(persistedOrder.getCreatedAt()).isNotNull();
-        assertThat(persistedOrder.getItems().size()).isEqualTo(2);
+        assertThat(persistedOrder.getItems()).hasSize(2);
+        assertThat(persistedOrder.getItems())
+                .extracting(OrderItemEntity::getDescription)
+                .containsExactlyInAnyOrder("order item 1", "order item 2");
+        assertThat(persistedOrder.getItems()).allSatisfy(item -> {
+            assertThat(item.getId()).isNotNull();
+            assertThat(item.getOrder().getId()).isEqualTo(savedOrder.getId());
+        });
+        assertThat(persistedOrder.getItems())
+                .extracting(OrderItemEntity::getLineTotal)
+                .usingComparatorForType(BigDecimal::compareTo, BigDecimal.class)
+                .containsExactlyInAnyOrder(new BigDecimal("1250.50"), new BigDecimal("2250.50"));
     }
 
     @Test
@@ -135,6 +133,57 @@ class OrderRepositoryIntegrationTest {
         assertThat(persistedOrder.getId()).isEqualTo(orderId);
         assertThat(version2).isEqualTo(version1 + 1);
         assertThat(version2).isEqualTo(persistedOrder.getVersion());
+    }
+
+    @Test
+    void shouldDeleteRemovedItemThroughOrphanRemoval() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .addItem(createOrderItem())
+                .addItem(createOrderItem2())
+                .build());
+        UUID orderId = order.getId();
+        entityManager.clear();
+        OrderEntity managed = orderRepository.findById(orderId).orElseThrow();
+        OrderItemEntity removed = managed.getItems().stream()
+                .filter(item -> item.getDescription().equals("order item 1"))
+                .findFirst().orElseThrow();
+        UUID removedId = removed.getId();
+
+        managed.removeItem(removed);
+        orderRepository.flush();
+        entityManager.clear();
+
+        OrderEntity persisted = orderRepository.findById(orderId).orElseThrow();
+        assertThat(persisted.getItems()).hasSize(1);
+        assertThat(persisted.getAmountTotal()).isEqualByComparingTo("2250.50");
+        assertThat(entityManager.find(OrderItemEntity.class, removedId)).isNull();
+    }
+
+    @Test
+    void shouldCascadeDeleteOrderItems() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .addItem(createOrderItem())
+                .build());
+        UUID orderId = order.getId();
+        UUID itemId = order.getItems().get(0).getId();
+        entityManager.clear();
+
+        orderRepository.deleteById(orderId);
+        orderRepository.flush();
+        entityManager.clear();
+
+        assertThat(orderRepository.findById(orderId)).isEmpty();
+        assertThat(entityManager.find(OrderItemEntity.class, itemId)).isNull();
+        assertThat(customerRepository.findById(customer.getId())).isPresent();
+    }
+
+    @Test
+    void shouldReturnEmptyWhenOrderDoesNotExist() {
+        assertThat(orderRepository.findById(UUID.randomUUID())).isEmpty();
     }
 
     private CustomerEntity createCustomer() {
