@@ -35,10 +35,14 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFou
 
 // No test-wide transaction: verify the API's own commit and rollback behavior.
 class OrderInternalApiIntegrationTest extends PostgresContainer {
-    @Autowired private TransactionTemplate transactionTemplate;
-    @Autowired private CustomerRepository customerRepository;
-    @Autowired private OrderRepository orderRepository;
-    @Autowired private OrderInternalApi orderInternalApi;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+    @Autowired
+    private CustomerRepository customerRepository;
+    @Autowired
+    private OrderRepository orderRepository;
+    @Autowired
+    private OrderInternalApi orderInternalApi;
 
     private final List<UUID> orderIds = new ArrayList<>();
     private final List<UUID> customerIds = new ArrayList<>();
@@ -130,7 +134,6 @@ class OrderInternalApiIntegrationTest extends PostgresContainer {
 
         assertThatCode(() -> orderInternalApi.validateCanReceivePayment(id)).doesNotThrowAnyException();
         var data = orderInternalApi.getOrderDataForPayment(id);
-
         assertThat(data.orderId()).isEqualTo(id);
         assertThat(data.amountTotal()).isEqualByComparingTo("1250.50");
         assertThat(readOrder(id).getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);

@@ -150,12 +150,12 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
                 .filter(item -> item.getDescription().equals("order item 1"))
                 .findFirst().orElseThrow();
         UUID removedId = removed.getId();
-
         managed.removeItem(removed);
         orderRepository.flush();
         entityManager.clear();
 
         OrderEntity persisted = orderRepository.findById(orderId).orElseThrow();
+
         assertThat(persisted.getItems()).hasSize(1);
         assertThat(persisted.getAmountTotal()).isEqualByComparingTo("2250.50");
         assertThat(entityManager.find(OrderItemEntity.class, removedId)).isNull();
@@ -171,7 +171,6 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
         UUID orderId = order.getId();
         UUID itemId = order.getItems().get(0).getId();
         entityManager.clear();
-
         orderRepository.deleteById(orderId);
         orderRepository.flush();
         entityManager.clear();
@@ -187,7 +186,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
     }
 
     private CustomerEntity createCustomer() {
-        return new CustomerEntity("test@example.com", "Test Customer");
+        return new CustomerEntity(UUID.randomUUID() + "@example.com", "Test Customer");
     }
 
     private OrderItemEntity createOrderItem() {
