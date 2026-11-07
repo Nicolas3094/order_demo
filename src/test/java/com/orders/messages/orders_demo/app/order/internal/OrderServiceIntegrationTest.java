@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,11 +42,18 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldGetAllPersistedOrders() {
+        UUID orderId1 = persistOrder();
+        UUID orderId2 = persistOrder();
 
+        var result = orderService.getAllOrders();
+
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(order -> order.id()).containsExactlyInAnyOrder(orderId1, orderId2);
     }
 
     @Test
     public void shouldReturnEmptyListWhenNoOrdersExist() {
+        UUID orderId1 = persistOrder();
     }
 
     @Test
