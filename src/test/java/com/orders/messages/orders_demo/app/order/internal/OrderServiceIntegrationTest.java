@@ -40,6 +40,7 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldGetAllPersistedOrders() {
+
     }
 
     @Test
@@ -103,10 +104,13 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
     }
 
     private UUID persistOrder() {
-        UUID customerId = customerRepository
-                .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
-        UUID orderId = transactionTemplate.execute(status -> {
-            return orderRepository.saveAndFlush(
+        return transactionTemplate.execute(status -> {
+            UUID customerId = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
+
+            customerIds.add(customerId);
+
+            var savedID = orderRepository.saveAndFlush(
                     OrderEntity.builder()
                             .customerId(customerId)
                             .addItem(OrderItemEntity.builder()
@@ -115,11 +119,10 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
                                     .build())
                             .build())
                     .getId();
+
+            orderIds.add(savedID);
+
+            return savedID;
         });
-
-        orderIds.add(orderId);
-        customerIds.add(customerId);
-
-        return orderId;
     }
 }
