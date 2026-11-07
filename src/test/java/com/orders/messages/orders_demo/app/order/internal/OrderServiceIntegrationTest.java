@@ -53,11 +53,19 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldReturnEmptyListWhenNoOrdersExist() {
-        UUID orderId1 = persistOrder();
+        var result = orderService.getAllOrders();
+
+        assertThat(result).isEmpty();
     }
 
     @Test
     public void shouldGetPersistedOrderById() {
+        UUID orderId = persistOrder();
+
+        var result = orderService.getOrder(orderId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.id()).isEqualTo(orderId);
     }
 
     @Test
