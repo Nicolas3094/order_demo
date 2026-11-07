@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
 public class OrderServiceIntegrationTest extends PostgresContainer {
     @Autowired
@@ -70,6 +72,8 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRejectGettingMissingOrder() {
+        assertThatThrownBy(() -> orderService.getOrder(UUID.randomUUID()))
+                .isInstanceOf(OrderNotFoundException.class);
     }
 
     @Test
