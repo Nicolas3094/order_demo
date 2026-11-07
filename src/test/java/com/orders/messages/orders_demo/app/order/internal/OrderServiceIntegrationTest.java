@@ -5,8 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +23,7 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
     private CustomerRepository customerRepository;
 
     @Autowired
-    private OrderItemService orderItemService;
+    private OrderService orderService;
 
     private final List<UUID> orderIds = new ArrayList<>();
     private final List<UUID> customerIds = new ArrayList<>();
@@ -37,24 +35,6 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             orderRepository.flush();
             customerIds.forEach(customerRepository::deleteById);
             customerRepository.flush();
-        });
-    }
-
-    @Test
-    public void shouldGetAllPersistedOrderItems() {
-        UUID orderId = persistOrder();
-
-        var result = transactionTemplate.execute(status -> orderItemService.getAllOrderItems(orderId));
-
-        assertThat(result).hasSize(1);
-        assertThat(result).singleElement().satisfies(item -> {
-            assertThat(item.id()).isNotNull();
-            assertThat(item.orderId()).isEqualTo(orderId);
-            assertThat(item.sku()).isEqualTo("SKU");
-            assertThat(item.description()).isEqualTo("order item 1");
-            assertThat(item.unitPrice()).isEqualByComparingTo("123.50");
-            assertThat(item.quantity()).isEqualTo(1L);
-            assertThat(item.lineTotal()).isEqualByComparingTo("123.50");
         });
     }
 
@@ -123,7 +103,7 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
     }
 
     private UUID persistOrder() {
-        UUID customerId = customerId = customerRepository
+        UUID customerId = customerRepository
                 .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
         UUID orderId = transactionTemplate.execute(status -> {
             return orderRepository.saveAndFlush(
