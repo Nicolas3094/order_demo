@@ -33,8 +33,7 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlread
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
-// No test-wide transaction: verify the API's own commit and rollback behavior.
-class OrderInternalApiIntegrationTest extends PostgresContainer {
+public class OrderInternalApiIntegrationTest extends PostgresContainer {
     @Autowired
     private TransactionTemplate transactionTemplate;
     @Autowired
@@ -50,7 +49,6 @@ class OrderInternalApiIntegrationTest extends PostgresContainer {
     @AfterEach
     void cleanUp() {
         transactionTemplate.executeWithoutResult(status -> {
-            // Delete only this test's fixtures, including items through JPA cascade.
             orderIds.forEach(orderRepository::deleteById);
             orderRepository.flush();
             customerIds.forEach(customerRepository::deleteById);
