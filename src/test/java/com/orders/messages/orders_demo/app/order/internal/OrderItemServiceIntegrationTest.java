@@ -9,6 +9,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -191,21 +193,29 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
         assertThatThrownBy(() -> orderItemService.createOrderItem(orderId, request))
                 .isInstanceOf(InsufficientStockException.class);
-        transactionTemplate.executeWithoutResult(status -> {
-            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
-            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
-
-            assertThat(persistedOrder.getId()).isEqualTo(orderId);
-            assertThat(persistedOrder.getItems().size()).isEqualTo(1);
-            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
-            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
-            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
-        });
-
+        assertOrderAndProductInitialState(orderId, OrderStatus.PENDING_PAYMENT, productId);
     }
 
-    @Test
-    public void shouldRejectItemMutationsWhenOrderIsNotPending() {
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = "PENDING_PAYMENT", mode = EnumSource.Mode.EXCLUDE)
+    public void shouldRejectItemMutationsWhenOrderIsNotPending(OrderStatus state) {
+        UUID orderId = persistOrder(state);
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        assertThatThrownBy(
+                () -> orderItemService.createOrderItem(orderId, new CreateOrderItemRequest(PRODUCT_SKU, 1L)))
+                .isInstanceOf(InvalidOrderStateException.class);
+        assertThatThrownBy(
+                () -> orderItemService.changeUnitPrice(orderId, orderItemIdFromOrder, new BigDecimal("200.00")))
+                .isInstanceOf(InvalidOrderStateException.class);
+        assertThatThrownBy(
+                () -> orderItemService.changeQuantity(orderId, orderItemIdFromOrder, 2L))
+                .isInstanceOf(InvalidOrderStateException.class);
+        assertThatThrownBy(
+                () -> orderItemService.deleteOrderItem(orderId, orderItemIdFromOrder))
+                .isInstanceOf(InvalidOrderStateException.class);
+        assertOrderProductAndItemInitialState(orderId, orderItemIdFromOrder, state, productId);
     }
 
     @Test
@@ -257,6 +267,32 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             OrderEntity order = orderRepository.findById(orderId).orElseThrow();
             var item = order.getItems().stream().findFirst().orElseThrow();
             return item.getId();
+        });
+    }
+
+    private UUID persistOrder(OrderStatus state) {
+        return transactionTemplate.execute(status -> {
+            UUID customerId = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
+
+            customerIds.add(customerId);
+
+            var savedID = orderRepository.saveAndFlush(
+                    OrderEntity.builder()
+                            .status(state)
+                            .customerId(customerId)
+                            .addItem(OrderItemEntity.builder()
+                                    .sku(PRODUCT_SKU)
+                                    .description("order item 1")
+                                    .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
+                                    .build())
+                            .build())
+                    .getId();
+
+            orderIds.add(savedID);
+
+            return savedID;
         });
     }
 
@@ -351,6 +387,37 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             productIds.add(savedID);
 
             return savedID;
+        });
+    }
+
+    private void assertOrderAndProductInitialState(UUID orderId, OrderStatus expectedOrderStatus, UUID productId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getItems().size()).isEqualTo(1);
+            assertThat(persistedOrder.getStatus()).isEqualTo(expectedOrderStatus);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+        });
+    }
+
+    private void assertOrderProductAndItemInitialState(UUID orderId, UUID orderItemId, OrderStatus expectedOrderStatus,
+            UUID productId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+            OrderItemEntity orderItemEntity = orderItemRepository.findById(orderItemId).orElseThrow();
+
+            assertThat(orderItemEntity.getId()).isEqualTo(orderItemId);
+            assertThat(orderItemEntity.getQuantity()).isEqualTo(1);
+            assertThat(orderItemEntity.getUnitPrice()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getItems().size()).isEqualTo(1);
+            assertThat(persistedOrder.getStatus()).isEqualTo(expectedOrderStatus);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 }
