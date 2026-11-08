@@ -15,8 +15,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.order.api.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
+import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
+import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 
 public class OrderItemServiceIntegrationTest extends PostgresContainer {
     @Autowired
@@ -25,7 +28,8 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     private OrderRepository orderRepository;
     @Autowired
     private OrderItemRepository orderItemRepository;
-
+    @Autowired
+    private ProductRepository productRepository;
     @Autowired
     private CustomerRepository customerRepository;
 
@@ -33,18 +37,21 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     private OrderItemService orderItemService;
 
     private final List<UUID> orderIds = new ArrayList<>();
-    private final List<UUID> orderItemsIds = new ArrayList<>();
     private final List<UUID> customerIds = new ArrayList<>();
+    private final List<UUID> productIds = new ArrayList<>();
+
+    private static final Long INITIAL_PRODUCT_STOCK = 10L;
+    private static final String PRODUCT_SKU = "SKU-123";
 
     @AfterEach
     private void cleanUp() {
         transactionTemplate.executeWithoutResult(status -> {
-            orderItemsIds.forEach(orderItemRepository::deleteById);
-            orderItemRepository.flush();
             orderIds.forEach(orderRepository::deleteById);
             orderRepository.flush();
             customerIds.forEach(customerRepository::deleteById);
             customerRepository.flush();
+            productIds.forEach(productRepository::deleteById);
+            productRepository.flush();
         });
     }
 
@@ -116,10 +123,26 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldCreateItemDecreaseStockAndUpdateOrderTotal() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 2L);
+
+        transactionTemplate.executeWithoutResult(status -> orderItemService.createOrderItem(orderId, request));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity order = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity product = productRepository.findById(productId).orElseThrow();
+
+            assertThat(order.getItems()).hasSize(2);
+            assertThat(order.getAmountTotal()).isEqualByComparingTo("370.50");
+            assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK - 2);
+        });
     }
 
     @Test
     public void shouldRejectCreatingItemForMissingOrder() {
+        UUID missingOrderId = UUID.randomUUID();
+
     }
 
     @Test
@@ -190,9 +213,6 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
         return transactionTemplate.execute(status -> {
             OrderEntity order = orderRepository.findById(orderId).orElseThrow();
             var item = order.getItems().stream().findFirst().orElseThrow();
-
-            orderItemsIds.add(item.getId());
-
             return item.getId();
         });
     }
@@ -230,6 +250,24 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             var savedID = orderRepository.saveAndFlush(OrderEntity.builder().customerId(customerId).build()).getId();
 
             orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistProduct() {
+        return transactionTemplate.execute(status -> {
+            UUID savedID = productRepository.saveAndFlush(
+                    ProductEntity.builder()
+                            .sku(PRODUCT_SKU)
+                            .name("PRODUCT 1")
+                            .description("product 1")
+                            .price(new BigDecimal("123.50"))
+                            .quantity(INITIAL_PRODUCT_STOCK)
+                            .build())
+                    .getId();
+
+            productIds.add(savedID);
 
             return savedID;
         });
