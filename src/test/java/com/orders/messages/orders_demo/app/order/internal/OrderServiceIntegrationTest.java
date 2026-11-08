@@ -14,8 +14,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
+import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
 public class OrderServiceIntegrationTest extends PostgresContainer {
@@ -78,6 +80,26 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldCreateAndPersistOrderForExistingCustomer() {
+        UUID customerId = persistCustomer();
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .customerId(customerId)
+                .currency(Currency.MXN)
+                .build();
+        UUID orderId = orderService.createOrder(request).id();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            orderIds.add(orderId);
+
+            OrderEntity persisted = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(persisted).isNotNull();
+            assertThat(persisted.getId()).isNotNull();
+            assertThat(persisted.getCustomerId()).isEqualTo(customerId);
+            assertThat(persisted.getCurrency()).isEqualTo(Currency.MXN);
+            assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(persisted.getItems()).hasSize(0);
+        });
+
     }
 
     @Test
@@ -144,6 +166,18 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             orderIds.add(savedID);
 
             return savedID;
+        });
+    }
+
+    private UUID persistCustomer() {
+        return transactionTemplate.execute(status -> {
+            UUID savedCustomerID = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name"))
+                    .getId();
+
+            customerIds.add(savedCustomerID);
+
+            return savedCustomerID;
         });
     }
 }
