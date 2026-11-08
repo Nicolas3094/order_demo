@@ -220,6 +220,25 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldChangeUnitPriceAndUpdateLineAndOrderTotalsWithoutChangingStock() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        transactionTemplate.executeWithoutResult(
+                (state) -> orderItemService.changeUnitPrice(orderId, orderItemIdFromOrder, new BigDecimal("200.00")));
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+            OrderItemEntity orderItemEntity = orderItemRepository.findById(orderItemIdFromOrder).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedProduct.getId()).isEqualTo(productId);
+            assertThat(orderItemEntity.getId()).isEqualTo(orderItemIdFromOrder);
+            assertThat(orderItemEntity.getUnitPrice()).isEqualByComparingTo(new BigDecimal("200.00"));
+            assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("200.00"));
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("200.00"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+        });
     }
 
     @Test

@@ -220,6 +220,8 @@ public class OrderItemService {
 
         action.accept(orderItem);
 
+        orderItem.getOrder().recalculateAmountTotal();
+
         return OrderItemMapper.toResponse(orderItemRepository.save(orderItem));
     }
 

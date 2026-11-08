@@ -135,7 +135,7 @@ public class OrderEntity {
         recalculateAmountTotal();
     }
 
-    private void recalculateAmountTotal() {
+    void recalculateAmountTotal() {
         amountTotal = BigDecimal.ZERO;
 
         for (OrderItemEntity item : items) {
