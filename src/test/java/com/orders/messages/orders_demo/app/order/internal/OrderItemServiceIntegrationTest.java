@@ -15,7 +15,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
-import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
 public class OrderItemServiceIntegrationTest extends PostgresContainer {
@@ -24,17 +23,23 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     @Autowired
     private OrderRepository orderRepository;
     @Autowired
+    private OrderItemRepository orderItemRepository;
+
+    @Autowired
     private CustomerRepository customerRepository;
 
     @Autowired
     private OrderItemService orderItemService;
 
     private final List<UUID> orderIds = new ArrayList<>();
+    private final List<UUID> orderItemsIds = new ArrayList<>();
     private final List<UUID> customerIds = new ArrayList<>();
 
     @AfterEach
     private void cleanUp() {
         transactionTemplate.executeWithoutResult(status -> {
+            orderItemsIds.forEach(orderItemRepository::deleteById);
+            orderItemRepository.flush();
             orderIds.forEach(orderRepository::deleteById);
             orderRepository.flush();
             customerIds.forEach(customerRepository::deleteById);
@@ -79,6 +84,14 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldGetPersistedOrderItemById() {
+        UUID orderId = persistOrder();
+        UUID orderItemId = getFirstOrderItem(orderId);
+
+        var result = transactionTemplate.execute(status -> orderItemService.getOrderItem(orderId, orderItemId));
+
+        assertThat(result).isNotNull();
+        assertThat(result.id()).isEqualTo(orderItemId);
+        assertThat(result.orderId()).isEqualTo(orderId);
     }
 
     @Test
@@ -159,6 +172,17 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRollBackItemDeletionWhenStockRestorationFails() {
+    }
+
+    private UUID getFirstOrderItem(UUID orderId) {
+        return transactionTemplate.execute(status -> {
+            OrderEntity order = orderRepository.findById(orderId).orElseThrow();
+            var item = order.getItems().stream().findFirst().orElseThrow();
+
+            orderItemsIds.add(item.getId());
+
+            return item.getId();
+        });
     }
 
     private UUID persistOrder() {
