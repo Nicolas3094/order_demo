@@ -20,6 +20,8 @@ import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
+import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
+import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 
 public class OrderServiceIntegrationTest extends PostgresContainer {
     @Autowired
@@ -28,12 +30,18 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
     private OrderRepository orderRepository;
     @Autowired
     private CustomerRepository customerRepository;
+    @Autowired
+    private ProductRepository productRepository;
 
     @Autowired
     private OrderService orderService;
 
     private final List<UUID> orderIds = new ArrayList<>();
     private final List<UUID> customerIds = new ArrayList<>();
+    private final List<UUID> productIds = new ArrayList<>();
+
+    private static final Long INITIAL_PRODUCT_STOCK = 10L;
+    private static final String PRODUCT_SKU = "SKU-123";
 
     @AfterEach
     private void cleanUp() {
@@ -42,6 +50,8 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             orderRepository.flush();
             customerIds.forEach(customerRepository::deleteById);
             customerRepository.flush();
+            productIds.forEach(productRepository::deleteById);
+            productRepository.flush();
         });
     }
 
@@ -114,6 +124,18 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldCancelOrderAndRestoreProductStock() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        transactionTemplate.executeWithoutResult(status -> orderService.cancelOrder(orderId));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+        });
     }
 
     @Test
@@ -152,6 +174,24 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
     public void shouldRollBackRefundWhenStockRestorationFails() {
     }
 
+    private UUID persistProduct() {
+        return transactionTemplate.execute(status -> {
+            UUID savedID = productRepository.saveAndFlush(
+                    ProductEntity.builder()
+                            .sku(PRODUCT_SKU)
+                            .name("PRODUCT 1")
+                            .description("product 1")
+                            .price(new BigDecimal("123.50"))
+                            .quantity(INITIAL_PRODUCT_STOCK)
+                            .build())
+                    .getId();
+
+            productIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
     private UUID persistOrder() {
         return transactionTemplate.execute(status -> {
             UUID customerId = customerRepository
@@ -163,8 +203,10 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
                     OrderEntity.builder()
                             .customerId(customerId)
                             .addItem(OrderItemEntity.builder()
+                                    .sku(PRODUCT_SKU)
                                     .description("order item 1")
                                     .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
                                     .build())
                             .build())
                     .getId();
