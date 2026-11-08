@@ -29,6 +29,7 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrde
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
 // PER_CLASS permite que @MethodSource use un método no estático y acceda al servicio inyectado.
 // Con PER_METHOD (el valor por defecto), la fuente debe ser estática; puede devolver
@@ -226,6 +227,11 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRollBackCancellationWhenStockRestorationFails() {
+        UUID orderId = persistOrderWithUnknownSKU();
+        UUID productId = persistProduct();
+
+        assertThatThrownBy(() -> orderService.cancelOrder(orderId)).isInstanceOf(ProductNotFoundException.class);
+        assertOrderAndProductState(orderId, OrderStatus.PENDING_PAYMENT, productId);
     }
 
     @Test
@@ -312,6 +318,37 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
                             .addItem(OrderItemEntity.builder()
                                     .sku(PRODUCT_SKU)
                                     .description("order item 1")
+                                    .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
+                                    .build())
+                            .build())
+                    .getId();
+
+            orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistOrderWithUnknownSKU() {
+        return transactionTemplate.execute(status -> {
+            UUID customerId = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
+
+            customerIds.add(customerId);
+
+            var savedID = orderRepository.saveAndFlush(
+                    OrderEntity.builder()
+                            .customerId(customerId)
+                            .addItem(OrderItemEntity.builder()
+                                    .sku(PRODUCT_SKU)
+                                    .description("order item 1")
+                                    .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
+                                    .build())
+                            .addItem(OrderItemEntity.builder()
+                                    .sku("UNKNOWN-SKU")
+                                    .description("order item 2")
                                     .unitPrice(new BigDecimal("123.50"))
                                     .quantity(1L)
                                     .build())

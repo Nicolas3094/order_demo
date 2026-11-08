@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
@@ -76,6 +77,7 @@ public class OrderService {
      * @throws OrderNotFoundException   if the order does not exist.
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
+    @Transactional
     public OrderResponse cancelOrder(UUID id) {
         return restoreProductsStock(id, OrderEntity::cancelOrder);
     }
