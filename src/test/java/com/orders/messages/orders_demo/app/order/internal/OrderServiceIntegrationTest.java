@@ -4,14 +4,18 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -26,6 +30,11 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFou
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 
+// PER_CLASS permite que @MethodSource use un método no estático y acceda al servicio inyectado.
+// Con PER_METHOD (el valor por defecto), la fuente debe ser estática; puede devolver
+// Consumer<OrderService> y recibir orderService al ejecutar cada test.
+// PER_CLASS comparte la instancia y sus listas de IDs entre todas las pruebas.
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class OrderServiceIntegrationTest extends PostgresContainer {
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -56,6 +65,10 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             productIds.forEach(productRepository::deleteById);
             productRepository.flush();
         });
+
+        orderIds.clear();
+        customerIds.clear();
+        productIds.clear();
     }
 
     @Test
@@ -203,8 +216,12 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
         assertOrderAndProductState(orderId, orderStatus, productId);
     }
 
-    @Test
-    public void shouldRejectStateChangesForMissingOrder() {
+    @ParameterizedTest
+    @MethodSource("stateChanges")
+    public void shouldRejectStateChangesForMissingOrder(Consumer<UUID> operation) {
+        UUID missingOrderId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> operation.accept(missingOrderId)).isInstanceOf(OrderNotFoundException.class);
     }
 
     @Test
@@ -217,6 +234,15 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRollBackRefundWhenStockRestorationFails() {
+    }
+
+    // Cada Consumer recibe el UUID inexistente y ejecuta una transición en el
+    // servicio real.
+    private Stream<Consumer<UUID>> stateChanges() {
+        return Stream.of(
+                orderService::cancelOrder,
+                orderService::expireOrder,
+                orderService::refundOrder);
     }
 
     private void assertOrderAndProductState(UUID orderId, OrderStatus expectedOrderStatus, UUID productId) {
