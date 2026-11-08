@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
 public class OrderItemServiceIntegrationTest extends PostgresContainer {
@@ -96,10 +97,21 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRejectGettingMissingOrderItem() {
+        UUID orderId = persistOrder();
+        UUID missingOrderItemId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> orderItemService.getOrderItem(orderId, missingOrderItemId))
+                .isInstanceOf(OrderItemNotFoundException.class);
     }
 
     @Test
     public void shouldRejectAccessingItemFromAnotherOrder() {
+        UUID orderId1 = persistOrder();
+        UUID orderId2 = persistOrder();
+        UUID orderItemIdFromOrder1 = getFirstOrderItem(orderId1);
+
+        assertThatThrownBy(() -> orderItemService.getOrderItem(orderId2, orderItemIdFromOrder1))
+                .isInstanceOf(OrderItemNotFoundException.class);
     }
 
     @Test
