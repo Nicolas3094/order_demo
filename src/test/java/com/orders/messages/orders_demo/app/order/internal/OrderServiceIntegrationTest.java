@@ -180,21 +180,27 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
         UUID productId = persistProduct();
 
         assertThatThrownBy(() -> orderService.cancelOrder(orderId)).isInstanceOf(InvalidOrderStateException.class);
-        transactionTemplate.executeWithoutResult(status -> {
-            var order = orderRepository.findById(orderId).orElseThrow();
-            var product = productRepository.findById(productId).orElseThrow();
-
-            assertThat(order.getStatus()).isEqualTo(orderStatus);
-            assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
-        });
+        assertOrderAndProductState(orderId, orderStatus, productId);
     }
 
-    @Test
-    public void shouldRejectExpiringOrderInInvalidState() {
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = "PENDING_PAYMENT", mode = EnumSource.Mode.EXCLUDE)
+    public void shouldRejectExpiringOrderInInvalidState(OrderStatus orderStatus) {
+        UUID orderId = persistOrder(orderStatus);
+        UUID productId = persistProduct();
+
+        assertThatThrownBy(() -> orderService.expireOrder(orderId)).isInstanceOf(InvalidOrderStateException.class);
+        assertOrderAndProductState(orderId, orderStatus, productId);
     }
 
-    @Test
-    public void shouldRejectRefundingOrderInInvalidState() {
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = "PAID", mode = EnumSource.Mode.EXCLUDE)
+    public void shouldRejectRefundingOrderInInvalidState(OrderStatus orderStatus) {
+        UUID orderId = persistOrder(orderStatus);
+        UUID productId = persistProduct();
+
+        assertThatThrownBy(() -> orderService.refundOrder(orderId)).isInstanceOf(InvalidOrderStateException.class);
+        assertOrderAndProductState(orderId, orderStatus, productId);
     }
 
     @Test
@@ -211,6 +217,16 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRollBackRefundWhenStockRestorationFails() {
+    }
+
+    private void assertOrderAndProductState(UUID orderId, OrderStatus expectedOrderStatus, UUID productId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            var product = productRepository.findById(productId).orElseThrow();
+
+            assertThat(order.getStatus()).isEqualTo(expectedOrderStatus);
+            assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+        });
     }
 
     private UUID persistProduct() {
