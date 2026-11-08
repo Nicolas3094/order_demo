@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.mockito.InjectMocks;
@@ -355,6 +356,42 @@ public class OrderItemServiceTest {
         assertEquals(DEFAULT_DESCRIPTION, result.description());
         assertEquals(newUnitPrice, result.unitPrice());
         assertEquals(DEFAULT_QUANTITY_LONG, result.quantity());
+    }
+
+    @Test
+    public void changeUnitPrice_WhenOrderHasMultipleItems_ShouldRecalculateOrderTotal() {
+        OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItemEntity item = createOrderItem(orderItemId);
+        order.addItem(item);
+        order.addItem(createOrderItem(UUID.randomUUID()));
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(item));
+        when(orderItemRepository.save(item)).thenReturn(item);
+
+        OrderItemResponse result = orderItemService.changeUnitPrice(
+                orderId, orderItemId, new BigDecimal("8.00"));
+
+        assertEquals(new BigDecimal("80.00"), result.lineTotal());
+        assertEquals(new BigDecimal("200.00"), order.getAmountTotal());
+        assertEquals(new BigDecimal("120.00"), order.getItems().get(1).getLineTotal());
+        verifyNoInteractions(productInternalApi);
+    }
+
+    @ParameterizedTest
+    @CsvSource({ "22, 264.00, 384.00", "2, 24.00, 144.00", "10, 120.00, 240.00" })
+    public void changeQuantity_WhenOrderHasMultipleItems_ShouldRecalculateOrderTotal(
+            long quantity, BigDecimal expectedLineTotal, BigDecimal expectedOrderTotal) {
+        OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItemEntity item = createOrderItem(orderItemId);
+        order.addItem(item);
+        order.addItem(createOrderItem(UUID.randomUUID()));
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(item));
+        when(orderItemRepository.save(item)).thenReturn(item);
+
+        OrderItemResponse result = orderItemService.changeQuantity(orderId, orderItemId, quantity);
+
+        assertEquals(expectedLineTotal, result.lineTotal());
+        assertEquals(expectedOrderTotal, order.getAmountTotal());
+        assertEquals(new BigDecimal("120.00"), order.getItems().get(1).getLineTotal());
     }
 
     @Test
