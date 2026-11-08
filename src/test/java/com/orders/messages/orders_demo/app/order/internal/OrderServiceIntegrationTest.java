@@ -10,6 +10,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -19,6 +21,7 @@ import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
@@ -168,11 +171,22 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.REFUNDED);
             assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
         });
-
     }
 
-    @Test
-    public void shouldRejectCancellingOrderInInvalidState() {
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = "PENDING_PAYMENT", mode = EnumSource.Mode.EXCLUDE)
+    public void shouldRejectCancellingOrderInInvalidState(OrderStatus orderStatus) {
+        UUID orderId = persistOrder(orderStatus);
+        UUID productId = persistProduct();
+
+        assertThatThrownBy(() -> orderService.cancelOrder(orderId)).isInstanceOf(InvalidOrderStateException.class);
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            var product = productRepository.findById(productId).orElseThrow();
+
+            assertThat(order.getStatus()).isEqualTo(orderStatus);
+            assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+        });
     }
 
     @Test
