@@ -22,6 +22,7 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNo
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
@@ -184,6 +185,23 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRejectCreatingItemWithInsufficientStockWithoutChangingPersistedState() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, INITIAL_PRODUCT_STOCK + 1);
+
+        assertThatThrownBy(() -> orderItemService.createOrderItem(orderId, request))
+                .isInstanceOf(InsufficientStockException.class);
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getItems().size()).isEqualTo(1);
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+        });
+
     }
 
     @Test
