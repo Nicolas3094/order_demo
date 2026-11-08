@@ -236,10 +236,20 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRollBackExpirationWhenStockRestorationFails() {
+        UUID orderId = persistOrderWithUnknownSKU();
+        UUID productId = persistProduct();
+
+        assertThatThrownBy(() -> orderService.expireOrder(orderId)).isInstanceOf(ProductNotFoundException.class);
+        assertOrderAndProductState(orderId, OrderStatus.PENDING_PAYMENT, productId);
     }
 
     @Test
     public void shouldRollBackRefundWhenStockRestorationFails() {
+        UUID orderId = persistOrderWithUnknownSKU(OrderStatus.PAID);
+        UUID productId = persistProduct();
+
+        assertThatThrownBy(() -> orderService.refundOrder(orderId)).isInstanceOf(ProductNotFoundException.class);
+        assertOrderAndProductState(orderId, OrderStatus.PAID, productId);
     }
 
     // Cada Consumer recibe el UUID inexistente y ejecuta una transición en el
@@ -318,6 +328,38 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
                             .addItem(OrderItemEntity.builder()
                                     .sku(PRODUCT_SKU)
                                     .description("order item 1")
+                                    .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
+                                    .build())
+                            .build())
+                    .getId();
+
+            orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistOrderWithUnknownSKU(OrderStatus state) {
+        return transactionTemplate.execute(status -> {
+            UUID customerId = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
+
+            customerIds.add(customerId);
+
+            var savedID = orderRepository.saveAndFlush(
+                    OrderEntity.builder()
+                            .status(state)
+                            .customerId(customerId)
+                            .addItem(OrderItemEntity.builder()
+                                    .sku(PRODUCT_SKU)
+                                    .description("order item 1")
+                                    .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
+                                    .build())
+                            .addItem(OrderItemEntity.builder()
+                                    .sku("UNKNOWN-SKU")
+                                    .description("order item 2")
                                     .unitPrice(new BigDecimal("123.50"))
                                     .quantity(1L)
                                     .build())

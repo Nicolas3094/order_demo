@@ -90,6 +90,7 @@ public class OrderService {
      * @throws OrderNotFoundException   if the order does not exist.
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
+    @Transactional
     public OrderResponse expireOrder(UUID id) {
         return restoreProductsStock(id, OrderEntity::expire);
     }
@@ -102,6 +103,7 @@ public class OrderService {
      * @throws OrderNotFoundException   if the order does not exist.
      * @throws ProductNotFoundException if any associated product cannot be found.
      */
+    @Transactional
     public OrderResponse refundOrder(UUID id) {
         return restoreProductsStock(id, OrderEntity::refund);
     }
