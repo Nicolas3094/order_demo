@@ -140,10 +140,35 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldExpireOrderAndRestoreProductStock() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        transactionTemplate.executeWithoutResult(status -> orderService.expireOrder(orderId));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.EXPIRED);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+        });
     }
 
     @Test
     public void shouldRefundOrderAndRestoreProductStock() {
+        UUID orderId = persistOrder(OrderStatus.PAID);
+        UUID productId = persistProduct();
+        transactionTemplate.executeWithoutResult(status -> orderService.refundOrder(orderId));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.REFUNDED);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+        });
+
     }
 
     @Test
@@ -187,6 +212,32 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
                     .getId();
 
             productIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistOrder(OrderStatus state) {
+        return transactionTemplate.execute(status -> {
+            UUID customerId = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
+
+            customerIds.add(customerId);
+
+            var savedID = orderRepository.saveAndFlush(
+                    OrderEntity.builder()
+                            .status(state)
+                            .customerId(customerId)
+                            .addItem(OrderItemEntity.builder()
+                                    .sku(PRODUCT_SKU)
+                                    .description("order item 1")
+                                    .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
+                                    .build())
+                            .build())
+                    .getId();
+
+            orderIds.add(savedID);
 
             return savedID;
         });
