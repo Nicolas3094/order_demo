@@ -13,13 +13,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
+import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderItemRequest;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
 public class OrderItemServiceIntegrationTest extends PostgresContainer {
     @Autowired
@@ -142,19 +146,40 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     @Test
     public void shouldRejectCreatingItemForMissingOrder() {
         UUID missingOrderId = UUID.randomUUID();
+        persistProduct();
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 2L);
 
+        assertThatThrownBy(() -> orderItemService.createOrderItem(missingOrderId, request))
+                .isInstanceOf(OrderNotFoundException.class);
     }
 
     @Test
     public void shouldRejectCreatingItemForMissingProduct() {
+        UUID orderId = persistOrder();
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 2L);
+
+        assertThatThrownBy(() -> orderItemService.createOrderItem(orderId, request))
+                .isInstanceOf(ProductNotFoundException.class);
     }
 
     @Test
     public void shouldRejectCreatingItemForInactiveProduct() {
+        UUID orderId = persistOrder();
+        persistInactiveProduct();
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 2L);
+
+        assertThatThrownBy(() -> orderItemService.createOrderItem(orderId, request))
+                .isInstanceOf(InvalidProductException.class);
     }
 
     @Test
     public void shouldRejectCreatingItemWithDifferentCurrency() {
+        UUID orderId = persistOrder();
+        persistUSDProduct();
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 2L);
+
+        assertThatThrownBy(() -> orderItemService.createOrderItem(orderId, request))
+                .isInstanceOf(InvalidOrderStateException.class);
     }
 
     @Test
@@ -259,6 +284,44 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
         return transactionTemplate.execute(status -> {
             UUID savedID = productRepository.saveAndFlush(
                     ProductEntity.builder()
+                            .sku(PRODUCT_SKU)
+                            .name("PRODUCT 1")
+                            .description("product 1")
+                            .price(new BigDecimal("123.50"))
+                            .quantity(INITIAL_PRODUCT_STOCK)
+                            .build())
+                    .getId();
+
+            productIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistUSDProduct() {
+        return transactionTemplate.execute(status -> {
+            UUID savedID = productRepository.saveAndFlush(
+                    ProductEntity.builder()
+                            .sku(PRODUCT_SKU)
+                            .name("PRODUCT 1")
+                            .description("product 1")
+                            .price(new BigDecimal("123.50"))
+                            .quantity(INITIAL_PRODUCT_STOCK)
+                            .currency(Currency.USD)
+                            .build())
+                    .getId();
+
+            productIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistInactiveProduct() {
+        return transactionTemplate.execute(status -> {
+            UUID savedID = productRepository.saveAndFlush(
+                    ProductEntity.builder()
+                            .active(false)
                             .sku(PRODUCT_SKU)
                             .name("PRODUCT 1")
                             .description("product 1")
