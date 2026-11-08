@@ -17,6 +17,7 @@ import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
@@ -99,11 +100,16 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
             assertThat(persisted.getItems()).hasSize(0);
         });
-
     }
 
     @Test
     public void shouldRejectCreatingOrderForMissingCustomer() {
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .customerId(UUID.randomUUID())
+                .currency(Currency.MXN)
+                .build();
+
+        assertThatThrownBy(() -> orderService.createOrder(request)).isInstanceOf(CustomerNotFoundException.class);
     }
 
     @Test
