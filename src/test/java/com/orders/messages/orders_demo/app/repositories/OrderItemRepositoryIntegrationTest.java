@@ -51,11 +51,26 @@ class OrderItemRepositoryIntegrationTest extends PostgresContainer {
         assertThat(persistedItem.getQuantity()).isEqualTo(2L);
         assertThat(persistedItem.getLineTotal()).isEqualByComparingTo("2501.00");
         assertThat(persistedItem.getOrder().getId()).isEqualTo(order.getId());
-
     }
 
     @Test
     void shouldLoadAssociatedOrderWithinTransaction() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build());
+        OrderItemEntity orderItem = createOrderItem("SKU-001");
+        orderItem.attachOrder(order);
+        UUID orderItemId = orderItemRepository.saveAndFlush(orderItem).getId();
+        entityManager.clear();
+
+        OrderItemEntity result = orderItemRepository.findById(orderItemId).orElseThrow();
+
+        OrderEntity associatedOrder = result.getOrder();
+        assertThat(associatedOrder.getId()).isEqualTo(order.getId());
+        assertThat(associatedOrder.getCurrency()).isEqualTo(Currency.MXN);
+        assertThat(associatedOrder.getCustomerId()).isEqualTo(customer.getId());
     }
 
     @Test
