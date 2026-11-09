@@ -409,6 +409,15 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     public void shouldRollBackQuantityChangeAndStockAdjustmentWhenCallerTransactionFails() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
+                (state) -> {
+                    orderItemService.changeQuantity(orderId, orderItemIdFromOrder, 5L);
+                    throw new RuntimeException("Simulated failure after quantity change");
+                })).isInstanceOf(RuntimeException.class)
+                .hasMessage("Simulated failure after quantity change");
+        assertOrderProductAndItemInitialState(orderId, orderItemIdFromOrder, OrderStatus.PENDING_PAYMENT, productId);
     }
 
     @Test
