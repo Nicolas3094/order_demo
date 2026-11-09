@@ -72,7 +72,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
         assertThat(result).singleElement().satisfies(item -> {
             assertThat(item.id()).isNotNull();
             assertThat(item.orderId()).isEqualTo(orderId);
-            assertThat(item.sku()).isEqualTo("SKU");
+            assertThat(item.sku()).isEqualTo(PRODUCT_SKU);
             assertThat(item.description()).isEqualTo("order item 1");
             assertThat(item.unitPrice()).isEqualByComparingTo("123.50");
             assertThat(item.quantity()).isEqualTo(1L);
@@ -243,6 +243,25 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldIncreaseQuantityDecreaseStockAndUpdateTotals() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        transactionTemplate.executeWithoutResult(
+                (state) -> orderItemService.changeQuantity(orderId, orderItemIdFromOrder, 5L));
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+            OrderItemEntity orderItemEntity = orderItemRepository.findById(orderItemIdFromOrder).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedProduct.getId()).isEqualTo(productId);
+            assertThat(orderItemEntity.getId()).isEqualTo(orderItemIdFromOrder);
+            assertThat(orderItemEntity.getQuantity()).isEqualTo(5L);
+            assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("617.50"));
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("617.50"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK - 4);
+        });
     }
 
     @Test
@@ -326,8 +345,10 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
                     OrderEntity.builder()
                             .customerId(customerId)
                             .addItem(OrderItemEntity.builder()
+                                    .sku(PRODUCT_SKU)
                                     .description("order item 1")
                                     .unitPrice(new BigDecimal("123.50"))
+                                    .quantity(1L)
                                     .build())
                             .build())
                     .getId();
