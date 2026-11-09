@@ -374,6 +374,21 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRejectMutatingItemFromAnotherOrder() {
+        UUID orderId = persistOrder();
+        UUID anotherOrderId = persistOrder();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+        persistProduct();
+
+        assertThatThrownBy(
+                () -> orderItemService.changeQuantity(anotherOrderId, orderItemIdFromOrder, 10L))
+                .isInstanceOf(OrderItemNotFoundException.class);
+        assertThatThrownBy(
+                () -> orderItemService.changeUnitPrice(
+                        anotherOrderId, orderItemIdFromOrder, new BigDecimal("200.00")))
+                .isInstanceOf(OrderItemNotFoundException.class);
+        assertThatThrownBy(
+                () -> orderItemService.deleteOrderItem(anotherOrderId, orderItemIdFromOrder))
+                .isInstanceOf(OrderItemNotFoundException.class);
     }
 
     @Test
