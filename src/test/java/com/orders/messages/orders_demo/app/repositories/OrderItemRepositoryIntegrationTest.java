@@ -75,6 +75,24 @@ class OrderItemRepositoryIntegrationTest extends PostgresContainer {
 
     @Test
     void shouldPersistUnitPriceChangeAndUpdatedLineTotal() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build());
+        OrderItemEntity orderItem = createOrderItem("SKU-001");
+        orderItem.attachOrder(order);
+        UUID orderItemId = orderItemRepository.saveAndFlush(orderItem).getId();
+        entityManager.clear();
+        orderItem = orderItemRepository.findById(orderItemId).orElseThrow();
+        orderItem.changeUnitPrice(new BigDecimal("632.00"));
+        orderItemRepository.saveAndFlush(orderItem);
+        entityManager.clear();
+
+        OrderItemEntity result = orderItemRepository.findById(orderItemId).orElseThrow();
+
+        assertThat(result.getUnitPrice()).isEqualByComparingTo("632.00");
+        assertThat(result.getLineTotal()).isEqualByComparingTo("1264.00");
     }
 
     @Test
