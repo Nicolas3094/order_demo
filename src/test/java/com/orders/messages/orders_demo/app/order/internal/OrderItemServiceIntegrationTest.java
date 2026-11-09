@@ -421,6 +421,21 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
+    public void shouldRollBackUnitPriceChangeAndTotalsWhenCallerTransactionFails() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
+                (state) -> {
+                    orderItemService.changeUnitPrice(orderId, orderItemIdFromOrder, new BigDecimal("150.00"));
+                    throw new RuntimeException("Simulated failure after unit price change");
+                })).isInstanceOf(RuntimeException.class)
+                .hasMessage("Simulated failure after unit price change");
+        assertOrderProductAndItemInitialState(orderId, orderItemIdFromOrder, OrderStatus.PENDING_PAYMENT, productId);
+    }
+
+    @Test
     public void shouldRollBackItemDeletionWhenStockRestorationFails() {
     }
 
@@ -599,6 +614,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             assertThat(orderItemEntity.getId()).isEqualTo(orderItemId);
             assertThat(orderItemEntity.getQuantity()).isEqualTo(1);
             assertThat(orderItemEntity.getUnitPrice()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
             assertThat(persistedOrder.getId()).isEqualTo(orderId);
             assertThat(persistedOrder.getItems().size()).isEqualTo(1);
             assertThat(persistedOrder.getStatus()).isEqualTo(expectedOrderStatus);
