@@ -260,12 +260,31 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             assertThat(orderItemEntity.getQuantity()).isEqualTo(5L);
             assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("617.50"));
             assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("617.50"));
-            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK - 4);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(6L);
         });
     }
 
     @Test
     public void shouldDecreaseQuantityRestoreStockAndUpdateTotals() {
+        UUID orderId = persistOrder(2L);
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        transactionTemplate.executeWithoutResult(
+                (state) -> orderItemService.changeQuantity(orderId, orderItemIdFromOrder, 1L));
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+            OrderItemEntity orderItemEntity = orderItemRepository.findById(orderItemIdFromOrder).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedProduct.getId()).isEqualTo(productId);
+            assertThat(orderItemEntity.getId()).isEqualTo(orderItemIdFromOrder);
+            assertThat(orderItemEntity.getQuantity()).isEqualTo(1L);
+            assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+        });
     }
 
     @Test
@@ -335,6 +354,10 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     private UUID persistOrder() {
+        return persistOrder(1L);
+    }
+
+    private UUID persistOrder(long quantity) {
         return transactionTemplate.execute(status -> {
             UUID customerId = customerRepository
                     .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name")).getId();
@@ -348,7 +371,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
                                     .sku(PRODUCT_SKU)
                                     .description("order item 1")
                                     .unitPrice(new BigDecimal("123.50"))
-                                    .quantity(1L)
+                                    .quantity(quantity)
                                     .build())
                             .build())
                     .getId();
