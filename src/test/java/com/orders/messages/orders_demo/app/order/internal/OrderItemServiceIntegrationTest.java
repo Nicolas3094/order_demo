@@ -336,6 +336,22 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldDeleteItemRestoreStockAndUpdateOrderTotal() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        transactionTemplate.executeWithoutResult(
+                (state) -> orderItemService.deleteOrderItem(orderId, orderItemIdFromOrder));
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(orderItemRepository.findById(orderItemIdFromOrder)).isEmpty();
+            assertThat(persistedOrder.getItems().size()).isEqualTo(0);
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("0.00"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1);
+        });
     }
 
     @Test
