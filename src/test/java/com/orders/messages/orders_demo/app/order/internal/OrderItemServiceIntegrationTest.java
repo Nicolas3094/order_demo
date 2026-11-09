@@ -393,10 +393,22 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRollBackItemCreationAndStockDeductionWhenCallerTransactionFails() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 3L);
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            orderItemService.createOrderItem(orderId, request);
+            throw new RuntimeException("Simulated failure after item creation");
+        })).isInstanceOf(RuntimeException.class)
+                .hasMessage("Simulated failure after item creation");
+        assertOrderAndProductInitialState(orderId, OrderStatus.PENDING_PAYMENT, productId);
     }
 
     @Test
     public void shouldRollBackQuantityChangeAndStockAdjustmentWhenCallerTransactionFails() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
     }
 
     @Test
