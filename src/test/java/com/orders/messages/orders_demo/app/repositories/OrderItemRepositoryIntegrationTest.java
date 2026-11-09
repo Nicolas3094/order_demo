@@ -97,6 +97,24 @@ class OrderItemRepositoryIntegrationTest extends PostgresContainer {
 
     @Test
     void shouldPersistQuantityChangeAndUpdatedLineTotal() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build());
+        OrderItemEntity orderItem = createOrderItem("SKU-001");
+        orderItem.attachOrder(order);
+        UUID orderItemId = orderItemRepository.saveAndFlush(orderItem).getId();
+        entityManager.clear();
+        orderItem = orderItemRepository.findById(orderItemId).orElseThrow();
+        orderItem.changeQuantity(4L);
+        orderItemRepository.saveAndFlush(orderItem);
+        entityManager.clear();
+
+        OrderItemEntity result = orderItemRepository.findById(orderItemId).orElseThrow();
+
+        assertThat(result.getQuantity()).isEqualTo(4L);
+        assertThat(result.getLineTotal()).isEqualByComparingTo("5002.00");
     }
 
     @Test
