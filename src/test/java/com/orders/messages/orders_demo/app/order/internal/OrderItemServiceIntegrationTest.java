@@ -436,7 +436,18 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldRollBackItemDeletionWhenStockRestorationFails() {
+    public void shouldRollBackItemDeletionAndStockRestorationWhenCallerTransactionFails() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(
+                (state) -> {
+                    orderItemService.deleteOrderItem(orderId, orderItemIdFromOrder);
+                    throw new RuntimeException("Simulated failure after item deletion");
+                })).isInstanceOf(RuntimeException.class)
+                .hasMessage("Simulated failure after item deletion");
+        assertOrderProductAndItemInitialState(orderId, orderItemIdFromOrder, OrderStatus.PENDING_PAYMENT, productId);
     }
 
     private UUID getFirstOrderItem(UUID orderId) {
