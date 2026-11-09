@@ -137,11 +137,21 @@ class OrderItemRepositoryIntegrationTest extends PostgresContainer {
 
         assertThatThrownBy(() -> orderItemRepository.saveAndFlush(orderItem))
                 .isInstanceOf(DataIntegrityViolationException.class);
-
     }
 
     @Test
     void shouldRejectDescriptionExceedingColumnLength() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build());
+        OrderItemEntity orderItem = createOrderItem("SKU-001", "a".repeat(256));
+        orderItem.attachOrder(order);
+        entityManager.clear();
+
+        assertThatThrownBy(() -> orderItemRepository.saveAndFlush(orderItem))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private CustomerEntity createCustomer() {
@@ -152,6 +162,15 @@ class OrderItemRepositoryIntegrationTest extends PostgresContainer {
         return OrderItemEntity.builder()
                 .sku(sku)
                 .description("Description of the item")
+                .quantity(2L)
+                .unitPrice(new BigDecimal("1250.50"))
+                .build();
+    }
+
+    private OrderItemEntity createOrderItem(String sku, String description) {
+        return OrderItemEntity.builder()
+                .sku(sku)
+                .description(description)
                 .quantity(2L)
                 .unitPrice(new BigDecimal("1250.50"))
                 .build();
