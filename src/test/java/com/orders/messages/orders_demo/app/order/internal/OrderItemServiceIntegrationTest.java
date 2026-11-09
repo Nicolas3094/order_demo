@@ -266,7 +266,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldDecreaseQuantityRestoreStockAndUpdateTotals() {
-        UUID orderId = persistOrder(2L);
+        UUID orderId = persistOrder(/* quantity= */ 2L);
         UUID productId = persistProduct();
         UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
 
@@ -289,7 +289,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldPreserveStockAndTotalsWhenQuantityIsUnchanged() {
-        UUID orderId = persistOrder(1L);
+        UUID orderId = persistOrder(/* quantity= */ 1L);
         UUID productId = persistProduct();
         UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
 
@@ -312,6 +312,26 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRejectIncreasingQuantityWithInsufficientStockWithoutChangingPersistedState() {
+        UUID orderId = persistOrder(/* quantity= */ 1L);
+        UUID productId = persistProduct(/* stock= */ 2L);
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        assertThatThrownBy(
+                () -> orderItemService.changeQuantity(orderId, orderItemIdFromOrder, 4L))
+                .isInstanceOf(InsufficientStockException.class);
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+            OrderItemEntity orderItemEntity = orderItemRepository.findById(orderItemIdFromOrder).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getItems().size()).isEqualTo(1);
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(2);
+            assertThat(orderItemEntity.getQuantity()).isEqualTo(1);
+            assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+        });
     }
 
     @Test
@@ -411,6 +431,24 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             var savedID = orderRepository.saveAndFlush(OrderEntity.builder().customerId(customerId).build()).getId();
 
             orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistProduct(Long stock) {
+        return transactionTemplate.execute(status -> {
+            UUID savedID = productRepository.saveAndFlush(
+                    ProductEntity.builder()
+                            .sku(PRODUCT_SKU)
+                            .name("PRODUCT 1")
+                            .description("product 1")
+                            .price(new BigDecimal("123.50"))
+                            .quantity(stock)
+                            .build())
+                    .getId();
+
+            productIds.add(savedID);
 
             return savedID;
         });
