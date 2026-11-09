@@ -129,6 +129,15 @@ class OrderItemRepositoryIntegrationTest extends PostgresContainer {
 
     @Test
     void shouldRejectPersistingItemReferencingMissingOrder() {
+        UUID missingOrderId = UUID.randomUUID();
+        OrderEntity orderReference = entityManager.getReference(OrderEntity.class, missingOrderId);
+        OrderItemEntity orderItem = createOrderItem("SKU-001");
+        orderItem.attachOrder(orderReference);
+        entityManager.clear();
+
+        assertThatThrownBy(() -> orderItemRepository.saveAndFlush(orderItem))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
     }
 
     @Test
