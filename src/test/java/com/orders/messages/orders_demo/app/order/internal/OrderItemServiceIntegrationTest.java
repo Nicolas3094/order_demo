@@ -289,6 +289,25 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldPreserveStockAndTotalsWhenQuantityIsUnchanged() {
+        UUID orderId = persistOrder(1L);
+        UUID productId = persistProduct();
+        UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
+
+        transactionTemplate.executeWithoutResult(
+                (state) -> orderItemService.changeQuantity(orderId, orderItemIdFromOrder, 1L));
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+            OrderItemEntity orderItemEntity = orderItemRepository.findById(orderItemIdFromOrder).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedProduct.getId()).isEqualTo(productId);
+            assertThat(orderItemEntity.getId()).isEqualTo(orderItemIdFromOrder);
+            assertThat(orderItemEntity.getQuantity()).isEqualTo(1L);
+            assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+        });
     }
 
     @Test
