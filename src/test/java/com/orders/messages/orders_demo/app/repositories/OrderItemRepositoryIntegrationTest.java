@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
@@ -119,6 +120,11 @@ class OrderItemRepositoryIntegrationTest extends PostgresContainer {
 
     @Test
     void shouldRejectPersistingItemWithoutOrder() {
+        OrderItemEntity orderItem = createOrderItem("SKU-001");
+        entityManager.clear();
+
+        assertThatThrownBy(() -> orderItemRepository.saveAndFlush(orderItem))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test
