@@ -2,7 +2,6 @@ package com.orders.messages.orders_demo.app.order.internal;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -11,7 +10,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -27,7 +25,6 @@ import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderItemRequest;
-import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 
@@ -110,7 +107,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.orderId").value(orderId.toString()))
                 .andExpect(jsonPath("$.sku").value(PRODUCT_SKU))
-                .andExpect(jsonPath("$.quantity").value(initialOrderItemQuantity + requestedQuantity));
+                .andExpect(jsonPath("$.quantity").value(requestedQuantity + initialOrderItemQuantity));
 
         transactionTemplate.executeWithoutResult((context) -> {
             OrderEntity persisted = orderRepository.findById(orderId).orElseThrow();

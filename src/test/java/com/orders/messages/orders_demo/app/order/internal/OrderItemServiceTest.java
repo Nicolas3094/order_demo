@@ -67,7 +67,7 @@ public class OrderItemServiceTest {
         UUID orderItemId2 = UUID.randomUUID();
         OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItemEntity orderItem1 = createOrderItem(orderItemId);
-        OrderItemEntity orderItem2 = createOrderItem(orderItemId2);
+        OrderItemEntity orderItem2 = createOrderItem(orderItemId2, "sku-2");
         order.addItem(orderItem1);
         order.addItem(orderItem2);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
@@ -122,6 +122,30 @@ public class OrderItemServiceTest {
      * createOrderItem
      * 
      */
+
+    @Test
+    public void createOrderItem_WhenSkuAlreadyExists_ShouldReturnExistingItemWithIncreasedQuantity() {
+        CreateOrderItemRequest request = createOrderItemRequestWithQuantity(3L);
+        OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        OrderItemEntity existingItem = createOrderItem(orderItemId);
+        order.addItem(existingItem);
+        ProductResponse product = createProduct(true, 20L);
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
+        when(productInternalApi.getProductBySku(DEFAULT_SKU)).thenReturn(product);
+
+        OrderItemResponse result = orderItemService.createOrderItem(orderId, request);
+
+        verify(orderRepository).save(order);
+        verify(productInternalApi).decreaceProductStock(DEFAULT_SKU, 3L);
+        assertEquals(1, order.getItems().size());
+        assertEquals(orderItemId, result.id());
+        assertEquals(orderId, result.orderId());
+        assertEquals(DEFAULT_SKU, result.sku());
+        assertEquals(DEFAULT_UNIT_PRICE, result.unitPrice());
+        assertEquals(13L, result.quantity());
+        assertEquals(new BigDecimal("156.00"), result.lineTotal());
+        assertEquals(new BigDecimal("156.00"), order.getAmountTotal());
+    }
 
     @Test
     public void createOrderItem_WhenOrderAndProductFound_ShouldCreateOrderItem() {
@@ -363,7 +387,7 @@ public class OrderItemServiceTest {
         OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItemEntity item = createOrderItem(orderItemId);
         order.addItem(item);
-        order.addItem(createOrderItem(UUID.randomUUID()));
+        order.addItem(createOrderItem(UUID.randomUUID(), "sku-2"));
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(item));
         when(orderItemRepository.save(item)).thenReturn(item);
 
@@ -383,7 +407,7 @@ public class OrderItemServiceTest {
         OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItemEntity item = createOrderItem(orderItemId);
         order.addItem(item);
-        order.addItem(createOrderItem(UUID.randomUUID()));
+        order.addItem(createOrderItem(UUID.randomUUID(), "sku-2"));
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(item));
         when(orderItemRepository.save(item)).thenReturn(item);
 
@@ -615,9 +639,13 @@ public class OrderItemServiceTest {
     }
 
     private static OrderItemEntity createOrderItem(UUID orderItemId) {
+        return createOrderItem(orderItemId, DEFAULT_SKU);
+    }
+
+    private static OrderItemEntity createOrderItem(UUID orderItemId, String sku) {
         return OrderItemEntity.builder()
                 .id(orderItemId)
-                .sku(DEFAULT_SKU)
+                .sku(sku)
                 .description(DEFAULT_DESCRIPTION)
                 .unitPrice(DEFAULT_UNIT_PRICE)
                 .quantity(DEFAULT_QUANTITY_LONG)

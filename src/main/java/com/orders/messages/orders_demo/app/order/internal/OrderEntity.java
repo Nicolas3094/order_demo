@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.hibernate.annotations.CreationTimestamp;
@@ -120,11 +121,19 @@ public class OrderEntity {
     }
 
     public void addItem(OrderItemEntity orderItem) {
-        items.add(Objects.requireNonNull(orderItem));
-
-        orderItem.attachOrder(this);
-
+        getOrderItem(orderItem.getSku())
+                .ifPresentOrElse(
+                        (orderItemEntity) -> orderItemEntity
+                                .changeQuantity(orderItemEntity.getQuantity() + orderItem.getQuantity()),
+                        () -> {
+                            items.add(Objects.requireNonNull(orderItem));
+                            orderItem.attachOrder(this);
+                        });
         recalculateAmountTotal();
+    }
+
+    private Optional<OrderItemEntity> getOrderItem(String sku) {
+        return items.stream().filter(orderItem -> orderItem.getSku().equals(sku)).findFirst();
     }
 
     public void removeItem(OrderItemEntity orderItem) {

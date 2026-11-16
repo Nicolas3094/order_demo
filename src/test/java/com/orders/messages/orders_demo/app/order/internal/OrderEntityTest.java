@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -206,10 +207,12 @@ public class OrderEntityTest {
     @Test
     public void addItem_WhenMultipleItemsAreAdded_ShouldRecalculateAmountTotal() {
         OrderItemEntity item1 = OrderItemEntity.builder()
+                .sku("SKU-001")
                 .unitPrice(new BigDecimal("100.00"))
                 .quantity(2L)
                 .build();
         OrderItemEntity item2 = OrderItemEntity.builder()
+                .sku("SKU-002")
                 .unitPrice(new BigDecimal("50.00"))
                 .quantity(4L)
                 .build();
@@ -220,12 +223,39 @@ public class OrderEntityTest {
     }
 
     @Test
+    public void addItem_WhenSkuAlreadyExists_ShouldIncreaseQuantityAndKeepExistingItem() {
+        OrderItemEntity existingItem = OrderItemEntity.builder()
+                .id(UUID.randomUUID())
+                .sku("SKU-001")
+                .unitPrice(new BigDecimal("100.00"))
+                .quantity(2L)
+                .build();
+        OrderItemEntity newItem = OrderItemEntity.builder()
+                .sku("SKU-001")
+                .unitPrice(new BigDecimal("100.00"))
+                .quantity(3L)
+                .build();
+        fakeOrder.addItem(existingItem);
+
+        fakeOrder.addItem(newItem);
+
+        assertEquals(1, fakeOrder.getItems().size());
+        assertSame(existingItem, fakeOrder.getItems().get(0));
+        assertSame(fakeOrder, existingItem.getOrder());
+        assertEquals(5L, existingItem.getQuantity());
+        assertEquals(new BigDecimal("500.00"), existingItem.getLineTotal());
+        assertEquals(new BigDecimal("500.00"), fakeOrder.getAmountTotal());
+    }
+
+    @Test
     public void removeItem_WhenOneItemIsRemoved_ShouldRecalculateAmountTotal() {
         OrderItemEntity item1 = OrderItemEntity.builder()
+                .sku("SKU-001")
                 .unitPrice(new BigDecimal("100.00"))
                 .quantity(2L)
                 .build();
         OrderItemEntity item2 = OrderItemEntity.builder()
+                .sku("SKU-002")
                 .unitPrice(new BigDecimal("50.00"))
                 .quantity(4L)
                 .build();

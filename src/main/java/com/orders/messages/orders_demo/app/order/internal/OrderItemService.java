@@ -99,13 +99,13 @@ public class OrderItemService {
 
         productInternalApi.decreaceProductStock(request.sku(), request.quantity());
 
-        OrderItemEntity item = OrderItemMapper.toEntity(request.quantity(), productResponse);
-
-        order.addItem(item);
+        order.addItem(OrderItemMapper.toEntity(request.quantity(), productResponse));
 
         orderRepository.save(order);
 
-        return OrderItemMapper.toResponse(item);
+        return OrderItemMapper.toResponse(
+                order.getItems().stream().filter(item -> item.getSku().equals(request.sku())).findFirst()
+                        .orElseThrow());
     }
 
     /**
