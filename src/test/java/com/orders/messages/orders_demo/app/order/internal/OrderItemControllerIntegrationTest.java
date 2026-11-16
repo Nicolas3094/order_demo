@@ -97,10 +97,41 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
         });
     }
 
-    // TODO: ajustar las aserciones y el servicio para acumular el SKU en una
-    // sola línea.
     @Test
     void shouldIncreaseExistingItemQuantityWhenAddingSameSkuThroughHttp() throws Exception {
+        Long requestedQuantity = 1L;
+        Long initialOrderItemQuantity = 1L;
+        UUID orderId = persistOrderWithOneItem(initialOrderItemQuantity);
+        CreateOrderItemRequest itemRequest = createOrderItemRequest(requestedQuantity);
+        mockMvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(itemRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.orderId").value(orderId.toString()))
+                .andExpect(jsonPath("$.sku").value(PRODUCT_SKU))
+                .andExpect(jsonPath("$.quantity").value(initialOrderItemQuantity + requestedQuantity));
+
+        transactionTemplate.executeWithoutResult((context) -> {
+            OrderEntity persisted = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity productEntity = productRepository.findBySku(PRODUCT_SKU).orElseThrow();
+
+            assertThat(persisted.getAmountTotal()).isEqualTo(new BigDecimal("246.00"));
+            assertThat(persisted.getItems()).hasSize(1);
+            assertThat(persisted.getItems().get(0))
+                    .extracting(
+                            OrderItemEntity::getSku,
+                            OrderItemEntity::getDescription,
+                            OrderItemEntity::getUnitPrice,
+                            OrderItemEntity::getQuantity)
+                    .containsExactly(
+                            PRODUCT_SKU,
+                            DEFAULT_DESCRIPTION,
+                            DEFAULT_UNIT_PRICE,
+                            initialOrderItemQuantity + requestedQuantity);
+            assertThat(productEntity.getQuantity())
+                    .isEqualTo(INITIAL_STOCK - requestedQuantity - initialOrderItemQuantity);
+        });
     }
 
     @Test
@@ -181,6 +212,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
                             .sku(PRODUCT_SKU)
                             .description(DEFAULT_DESCRIPTION)
                             .price(DEFAULT_UNIT_PRICE)
+                            .quantity(INITIAL_STOCK - quantity)
                             .build())
                     .getId();
 
