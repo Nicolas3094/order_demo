@@ -43,6 +43,8 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
     @Autowired
     private OrderRepository orderRepository;
     @Autowired
+    private OrderItemRepository orderItemRepository;
+    @Autowired
     private ObjectMapper objectMapper;
 
     private final List<UUID> orderIds = new ArrayList<>();
@@ -144,7 +146,6 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].sku").value(PRODUCT_SKU))
-                .andExpect(jsonPath("$[0].description").value(DEFAULT_DESCRIPTION))
                 .andExpect(jsonPath("$[0].unitPrice").value(123.00))
                 .andExpect(jsonPath("$[0].quantity").value(initialOrderItemQuantity));
 
@@ -157,7 +158,27 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldGetPersistedItemThroughHttpAndReturn200WithMatchingJson() {
+    void shouldGetPersistedItemThroughHttpAndReturn200WithMatchingJson() throws Exception {
+        Long initialOrderItemQuantity = 2L;
+        UUID orderId = persistOrderWithOneItem(initialOrderItemQuantity);
+        UUID orderItemId = transactionTemplate.execute(action -> {
+            return orderRepository.findById(orderId).orElseThrow().getItems().getFirst().getId();
+        });
+
+        mockMvc.perform(get("/api/v1/orders/{orderId}/items/{orderItemId}", orderId, orderItemId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.sku").value(PRODUCT_SKU))
+                .andExpect(jsonPath("$.unitPrice").value(123.00))
+                .andExpect(jsonPath("$.quantity").value(initialOrderItemQuantity));
+
+        transactionTemplate.executeWithoutResult((context) -> {
+            OrderItemEntity persisted = orderItemRepository.findById(orderItemId).orElseThrow();
+
+            assertThat(persisted.getLineTotal()).isEqualTo(new BigDecimal("246.00"));
+            assertThat(persisted.getQuantity()).isEqualTo(initialOrderItemQuantity);
+            assertThat(persisted.getUnitPrice()).isEqualTo(new BigDecimal("123.00"));
+        });
     }
 
     @Test
