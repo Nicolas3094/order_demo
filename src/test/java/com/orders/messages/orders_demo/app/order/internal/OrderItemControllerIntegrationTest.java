@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -71,6 +72,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
         Long requestedQuantity = 1l;
         UUID orderId = persistOrder();
         CreateOrderItemRequest itemRequest = createOrderItemRequest(requestedQuantity);
+
         mockMvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(itemRequest)))
@@ -100,6 +102,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
         Long initialOrderItemQuantity = 1L;
         UUID orderId = persistOrderWithOneItem(initialOrderItemQuantity);
         CreateOrderItemRequest itemRequest = createOrderItemRequest(requestedQuantity);
+
         mockMvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(itemRequest)))
@@ -132,7 +135,25 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldListPersistedItemsThroughHttpAndReturn200WithJsonArray() {
+    void shouldListPersistedItemsThroughHttpAndReturn200WithJsonArray() throws Exception {
+        Long initialOrderItemQuantity = 2L;
+        UUID orderId = persistOrderWithOneItem(initialOrderItemQuantity);
+
+        mockMvc.perform(get("/api/v1/orders/{orderId}/items", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].sku").value(PRODUCT_SKU))
+                .andExpect(jsonPath("$[0].description").value(DEFAULT_DESCRIPTION))
+                .andExpect(jsonPath("$[0].unitPrice").value(123.00))
+                .andExpect(jsonPath("$[0].quantity").value(initialOrderItemQuantity));
+
+        transactionTemplate.executeWithoutResult((context) -> {
+            OrderEntity persisted = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(persisted.getItems()).hasSize(1);
+            assertThat(persisted.getAmountTotal()).isEqualTo(new BigDecimal("246.00"));
+        });
     }
 
     @Test
