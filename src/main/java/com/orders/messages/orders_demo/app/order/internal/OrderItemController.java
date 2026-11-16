@@ -22,7 +22,7 @@ import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 import jakarta.validation.Valid;
 
 @RestController
-@RequestMapping("api/v1/orders")
+@RequestMapping("/api/v1/orders/{orderId}/items")
 public class OrderItemController {
 
     private final OrderItemService orderItemService;
@@ -31,19 +31,19 @@ public class OrderItemController {
         this.orderItemService = orderItemService;
     }
 
-    @GetMapping("/{orderId}/items")
+    @GetMapping
     public ResponseEntity<List<OrderItemResponse>> getAllOrderItems(@PathVariable UUID orderId) {
         return ResponseEntity.ok(orderItemService.getAllOrderItems(orderId));
     }
 
-    @GetMapping("/{orderId}/items/{orderItemId}")
+    @GetMapping("/{orderItemId}")
     public ResponseEntity<OrderItemResponse> getOrderItem(
             @PathVariable UUID orderId,
             @PathVariable UUID orderItemId) {
         return ResponseEntity.ok(orderItemService.getOrderItem(orderId, orderItemId));
     }
 
-    @PostMapping("/{orderId}/items")
+    @PostMapping
     public ResponseEntity<OrderItemResponse> createOrderItem(
             @PathVariable UUID orderId,
             @Valid @RequestBody CreateOrderItemRequest itemRequest) {
@@ -51,7 +51,7 @@ public class OrderItemController {
                 .body(orderItemService.createOrderItem(orderId, itemRequest));
     }
 
-    @DeleteMapping("/{orderId}/items/{orderItemId}")
+    @DeleteMapping("/{orderItemId}")
     public ResponseEntity<Void> deleteOrderItem(
             @PathVariable UUID orderId,
             @PathVariable UUID orderItemId) {
@@ -61,7 +61,7 @@ public class OrderItemController {
         return ResponseEntity.noContent().build();
     }
 
-    @PatchMapping("/{orderId}/items/{orderItemId}/price")
+    @PatchMapping("/{orderItemId}/price")
     public ResponseEntity<OrderItemResponse> changeUnitPrice(
             @PathVariable UUID orderId,
             @PathVariable UUID orderItemId,
@@ -72,7 +72,7 @@ public class OrderItemController {
                 itemChangeUnitPriceRequest.unitPrice()));
     }
 
-    @PatchMapping("/{orderId}/items/{orderItemId}/quantity")
+    @PatchMapping("/{orderItemId}/quantity")
     public ResponseEntity<OrderItemResponse> changeQuantity(
             @PathVariable UUID orderId,
             @PathVariable UUID orderItemId,
