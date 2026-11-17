@@ -261,7 +261,35 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldRejectInvalidCreateRequestWith400AndErrorJsonWithoutPersistedChanges() {
+    void shouldRejectInvalidCreateRequestWith400AndErrorJsonWithoutPersistedChanges() throws Exception {
+        Long initialOrderItemQuantity = 1L;
+        UUID orderId = persistOrderWithOneItem(initialOrderItemQuantity);
+        CreateOrderItemRequest request = new CreateOrderItemRequest("", 20L);
+        UUID orderItemId = getFirstOrderItem(orderId);
+
+        mockMvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items"));
+
+        transactionTemplate.executeWithoutResult((context) -> {
+            OrderItemEntity persisted = orderItemRepository.findById(orderItemId).orElseThrow();
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(productRepository.findBySku(PRODUCT_SKU).orElseThrow().getQuantity())
+                    .isEqualTo(INITIAL_STOCK - initialOrderItemQuantity);
+            assertThat(persistedOrder.getItems()).hasSize(1);
+            assertThat(persistedOrder.getAmountTotal()).isEqualTo(new BigDecimal("123.00"));
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(persisted.getLineTotal()).isEqualTo(new BigDecimal("123.00"));
+            assertThat(persisted.getUnitPrice()).isEqualTo(new BigDecimal("123.00"));
+            assertThat(persisted.getQuantity()).isEqualTo(1L);
+        });
     }
 
     @Test
