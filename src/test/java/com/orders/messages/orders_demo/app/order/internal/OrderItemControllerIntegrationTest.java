@@ -293,7 +293,17 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldReturn404WithErrorJsonWhenRequestedItemDoesNotExist() {
+    void shouldReturn404WithErrorJsonWhenRequestedItemDoesNotExist() throws Exception {
+        UUID orderId = persistOrder();
+        UUID missingItemId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/orders/{orderId}/items/{orderItemId}", orderId, missingItemId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + missingItemId));
     }
 
     @Test
