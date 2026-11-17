@@ -306,8 +306,21 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
                 .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items/" + missingItemId));
     }
 
-    @Test
-    void shouldReturn409WithErrorJsonWhenCreatingItemForNonPendingOrder() {
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PENDING_PAYMENT")
+    void shouldReturn409WithErrorJsonWhenCreatingItemForNonPendingOrder(OrderStatus orderStatus) throws Exception {
+        UUID orderId = persistOrder(orderStatus);
+        CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 20L);
+
+        mockMvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items"));
     }
 
     private static CreateOrderItemRequest createOrderItemRequest(Long quantity) {
@@ -338,6 +351,39 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
 
             var savedID = orderRepository.saveAndFlush(
                     OrderEntity.builder()
+                            .customerId(customerId)
+                            .build())
+                    .getId();
+
+            orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistOrder(OrderStatus orderStatus) {
+        return transactionTemplate.execute(status -> {
+            UUID productId = productRepository
+                    .saveAndFlush(ProductEntity.builder()
+                            .name(PRODUCT_NAME)
+                            .sku(PRODUCT_SKU)
+                            .description(DEFAULT_DESCRIPTION)
+                            .price(DEFAULT_UNIT_PRICE)
+                            .quantity(INITIAL_STOCK)
+                            .build())
+                    .getId();
+
+            productIds.add(productId);
+
+            UUID customerId = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name"))
+                    .getId();
+
+            customerIds.add(customerId);
+
+            var savedID = orderRepository.saveAndFlush(
+                    OrderEntity.builder()
+                            .status(orderStatus)
                             .customerId(customerId)
                             .build())
                     .getId();
