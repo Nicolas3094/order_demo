@@ -240,7 +240,24 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldDeleteItemThroughHttpAndReturn204WithEmptyBodyAndPersistedChanges() {
+    void shouldDeleteItemThroughHttpAndReturn204WithEmptyBodyAndPersistedChanges() throws Exception {
+        Long initialOrderItemQuantity = 1L;
+        UUID orderId = persistOrderWithOneItem(initialOrderItemQuantity);
+        UUID orderItemId = getFirstOrderItem(orderId);
+
+        mockMvc.perform(delete("/api/v1/orders/{orderId}/items/{orderItemId}", orderId, orderItemId))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        transactionTemplate.executeWithoutResult((context) -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(productRepository.findBySku(PRODUCT_SKU).orElseThrow().getQuantity())
+                    .isEqualTo(INITIAL_STOCK);
+            assertThat(orderItemRepository.findById(orderItemId)).isEmpty();
+            assertThat(persistedOrder.getItems()).extracting("id").doesNotContain(orderItemId);
+            assertThat(persistedOrder.getAmountTotal()).isEqualTo(new BigDecimal("0.00"));
+        });
     }
 
     @Test
