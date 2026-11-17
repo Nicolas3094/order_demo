@@ -210,7 +210,33 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldChangeQuantityThroughHttpAndReturn200WithPersistedStockAndTotals() {
+    void shouldChangeQuantityThroughHttpAndReturn200WithPersistedStockAndTotals() throws Exception {
+        Long initialOrderItemQuantity = 1L;
+        Long newQuantity = 3L;
+        UUID orderId = persistOrderWithOneItem(initialOrderItemQuantity);
+        UUID orderItemId = getFirstOrderItem(orderId);
+        OrderItemChangeQuantityRequest request = new OrderItemChangeQuantityRequest(newQuantity);
+
+        mockMvc.perform(patch("/api/v1/orders/{orderId}/items/{orderItemId}/quantity", orderId, orderItemId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.sku").value(PRODUCT_SKU))
+                .andExpect(jsonPath("$.unitPrice").value(123))
+                .andExpect(jsonPath("$.quantity").value(newQuantity));
+
+        transactionTemplate.executeWithoutResult((context) -> {
+            OrderItemEntity persisted = orderItemRepository.findById(orderItemId).orElseThrow();
+
+            assertThat(orderRepository.findById(orderId).orElseThrow().getAmountTotal())
+                    .isEqualByComparingTo("369.00");
+            assertThat(productRepository.findBySku(PRODUCT_SKU).orElseThrow().getQuantity())
+                    .isEqualTo(INITIAL_STOCK - newQuantity);
+            assertThat(persisted.getLineTotal()).isEqualTo(new BigDecimal("369.00"));
+            assertThat(persisted.getQuantity()).isEqualTo(newQuantity);
+            assertThat(persisted.getUnitPrice()).isEqualTo(DEFAULT_UNIT_PRICE);
+        });
     }
 
     @Test
