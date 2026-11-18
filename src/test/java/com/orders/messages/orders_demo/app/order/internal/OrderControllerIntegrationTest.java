@@ -1,46 +1,368 @@
 package com.orders.messages.orders_demo.app.order.internal;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import static org.assertj.core.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orders.messages.orders_demo.app.PostgresContainer;
+import com.orders.messages.orders_demo.app.common.enums.Currency;
+import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
+import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
+import com.orders.messages.orders_demo.app.order.api.OrderResponse;
+import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
+import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 
 @AutoConfigureMockMvc
 class OrderControllerIntegrationTest extends PostgresContainer {
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+    @Autowired
+    private MockMvc mockMvc;
+    @Autowired
+    private ObjectMapper objectMapper;
+    @Autowired
+    private CustomerRepository customerRepository;
+    @Autowired
+    private ProductRepository productRepository;
+    @Autowired
+    private OrderRepository orderRepository;
+    @Autowired
+    private OrderItemRepository orderItemRepository;
 
-    @Test
-    void shouldCreateOrderThroughHttpAndReturn201WithPersistedCustomerCurrencyAndPendingStatus() {
+    private final List<UUID> orderIds = new ArrayList<>();
+    private final List<UUID> orderItemsIds = new ArrayList<>();
+    private final List<UUID> customerIds = new ArrayList<>();
+    private final List<UUID> productIds = new ArrayList<>();
+
+    private static final String DEFAULT_DESCRIPTION = "description";
+    private static final BigDecimal DEFAULT_UNIT_PRICE = new BigDecimal("123.00");
+    private static final String PRODUCT_SKU = "SKU-123";
+    private static final String PRODUCT_NAME = "Product Name";
+    private static final Long INITIAL_STOCK = 5L;
+
+    @AfterEach
+    private void cleanUp() {
+        transactionTemplate.executeWithoutResult(status -> {
+            orderItemsIds.forEach(orderItemRepository::deleteById);
+            orderItemRepository.flush();
+            orderIds.forEach(orderRepository::deleteById);
+            orderRepository.flush();
+            customerIds.forEach(customerRepository::deleteById);
+            customerRepository.flush();
+            productIds.forEach(productRepository::deleteById);
+            productRepository.flush();
+        });
     }
 
     @Test
-    void shouldListPersistedOrdersThroughHttpAndReturn200WithJsonArray() {
+    void shouldCreateOrderThroughHttpAndReturn201WithPersistedCustomerCurrencyAndPendingStatus() throws Exception {
+        UUID customerId = persistCustomer();
+        CreateOrderRequest request = createValidRequest(customerId);
+
+        MvcResult resultMvc = mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()))
+                .andExpect(jsonPath("$.amountTotal").value(BigDecimal.ZERO))
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andReturn();
+        OrderResponse response = objectMapper.readValue(resultMvc.getResponse().getContentAsString(),
+                OrderResponse.class);
+        orderIds.add(response.id());
+
+        transactionTemplate.executeWithoutResult((action) -> {
+            OrderEntity orderEntity = orderRepository.findById(response.id()).orElseThrow();
+
+            assertThat(orderEntity.getCustomerId()).isEqualTo(customerId);
+            assertThat(orderEntity.getAmountTotal()).isEqualTo(new BigDecimal("0.00"));
+            assertThat(orderEntity.getItems()).isEmpty();
+            assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(orderEntity.getCurrency()).isEqualTo(Currency.MXN);
+            assertThat(orderEntity.getCreatedAt()).isNotNull();
+            assertThat(orderEntity.getVersion()).isNotNull();
+        });
     }
 
     @Test
-    void shouldGetPersistedOrderThroughHttpAndReturn200WithMatchingJson() {
+    void shouldListPersistedOrdersThroughHttpAndReturn200WithJsonArray() throws Exception {
+        UUID customerId_1 = persistCustomer();
+        UUID customerId_2 = persistCustomer();
+        UUID customerId_3 = persistCustomer();
+        UUID orderId_1 = persistOrder(customerId_1);
+        UUID orderId_2 = persistOrder(customerId_2);
+        UUID orderId_3 = persistOrder(customerId_3);
+
+        MvcResult resultMvc = mockMvc.perform(get("/api/v1/orders"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andReturn();
+        List<OrderResponse> responseList = objectMapper.readValue(resultMvc.getResponse().getContentAsString(),
+                new TypeReference<List<OrderResponse>>() {
+                });
+
+        assertThat(responseList).hasSize(3);
+        assertThat(responseList).extracting(OrderResponse::id)
+                .containsExactlyInAnyOrder(orderId_1, orderId_2, orderId_3);
     }
 
     @Test
-    void shouldCancelOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() {
+    void shouldGetPersistedOrderThroughHttpAndReturn200WithMatchingJson() throws Exception {
+        UUID customerId = persistCustomer();
+        UUID orderId = persistOrder(customerId);
+
+        OrderResponse response = objectMapper.readValue(
+                mockMvc.perform(get("/api/v1/orders/{id}", orderId))
+                        .andExpect(status().isOk())
+                        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(),
+                OrderResponse.class);
+
+        assertThat(response.id()).isEqualTo(orderId);
+        assertThat(response.customerId()).isEqualTo(customerId);
     }
 
     @Test
-    void shouldExpireOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() {
+    void shouldCancelOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() throws Exception {
+        Long itemsQuantity = 2L;
+        UUID productId = persistProduct(INITIAL_STOCK);
+        UUID customerId = persistCustomer();
+        UUID orderId = persistOrder(customerId);
+        persistOrderItem(orderId, PRODUCT_SKU, itemsQuantity);
+
+        OrderResponse response = objectMapper.readValue(mockMvc.perform(patch("/api/v1/orders/{id}/cancel", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(),
+                OrderResponse.class);
+
+        transactionTemplate.executeWithoutResult((action) -> {
+            OrderEntity orderEntity = orderRepository.findById(response.id()).orElseThrow();
+            ProductEntity productEntity = productRepository.findById(productId).orElseThrow();
+
+            assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK + itemsQuantity);
+        });
     }
 
     @Test
-    void shouldRefundPaidOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() {
+    void shouldExpireOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() throws Exception {
+        Long itemsQuantity = 2L;
+        UUID productId = persistProduct(INITIAL_STOCK);
+        UUID customerId = persistCustomer();
+        UUID orderId = persistOrder(customerId);
+        persistOrderItem(orderId, PRODUCT_SKU, itemsQuantity);
+
+        OrderResponse response = objectMapper.readValue(mockMvc.perform(patch("/api/v1/orders/{id}/expire", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value("EXPIRED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(), OrderResponse.class);
+
+        transactionTemplate.executeWithoutResult((action) -> {
+            OrderEntity orderEntity = orderRepository.findById(response.id()).orElseThrow();
+            ProductEntity productEntity = productRepository.findById(productId).orElseThrow();
+
+            assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.EXPIRED);
+            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK + itemsQuantity);
+        });
     }
 
     @Test
-    void shouldRejectInvalidCreateRequestWith400AndErrorJsonWithoutPersistingOrder() {
+    void shouldRefundPaidOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() throws Exception {
+        Long itemsQuantity = 2L;
+        UUID productId = persistProduct(INITIAL_STOCK);
+        UUID customerId = persistCustomer();
+        UUID orderId = persistOrder(customerId, OrderStatus.PAID);
+        persistOrderItem(orderId, PRODUCT_SKU, itemsQuantity);
+
+        OrderResponse response = objectMapper.readValue(mockMvc.perform(patch("/api/v1/orders/{id}/refund", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value("REFUNDED"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(), OrderResponse.class);
+
+        transactionTemplate.executeWithoutResult((action) -> {
+            OrderEntity orderEntity = orderRepository.findById(response.id()).orElseThrow();
+            ProductEntity productEntity = productRepository.findById(productId).orElseThrow();
+
+            assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.REFUNDED);
+            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK + itemsQuantity);
+        });
     }
 
     @Test
-    void shouldReturn404WithErrorJsonWhenRequestedOrderDoesNotExist() {
+    void shouldRejectInvalidCreateRequestWith400AndErrorJsonWithoutPersistingOrder() throws Exception {
+        CreateOrderRequest request = CreateOrderRequest.builder()
+                .customerId(null)
+                .currency(Currency.MXN)
+                .build();
+
+        mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"));
+
+        transactionTemplate.executeWithoutResult((action) -> {
+            assertThat(orderRepository.findAll()).isEmpty();
+        });
     }
 
     @Test
-    void shouldReturn409WithErrorJsonWhenCancellingPaidOrderWithoutChangingPersistedState() {
+    void shouldReturn404WithErrorJsonWhenRequestedOrderDoesNotExist() throws Exception {
+        UUID orderId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/orders/{id}", orderId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"));
+    }
+
+    @Test
+    void shouldReturn409WithErrorJsonWhenCancellingPaidOrderWithoutChangingPersistedState() throws Exception {
+        UUID customerId = persistCustomer();
+        UUID orderId = persistOrder(customerId, OrderStatus.PAID);
+
+        mockMvc.perform(patch("/api/v1/orders/{id}/cancel", orderId))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"));
+
+        transactionTemplate.executeWithoutResult((action) -> {
+            OrderEntity orderEntity = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.PAID);
+        });
+    }
+
+    private UUID persistCustomer() {
+        return transactionTemplate.execute(status -> {
+            UUID customerId = customerRepository
+                    .saveAndFlush(new CustomerEntity(UUID.randomUUID() + "@example.com", "name"))
+                    .getId();
+
+            customerIds.add(customerId);
+
+            return customerId;
+        });
+    }
+
+    private UUID persistProduct(Long stock) {
+        return transactionTemplate.execute(status -> {
+            UUID productId = productRepository
+                    .saveAndFlush(ProductEntity.builder()
+                            .name(PRODUCT_NAME)
+                            .sku(PRODUCT_SKU)
+                            .description(DEFAULT_DESCRIPTION)
+                            .price(DEFAULT_UNIT_PRICE)
+                            .quantity(stock)
+                            .build())
+                    .getId();
+
+            productIds.add(productId);
+
+            return productId;
+        });
+    }
+
+    private UUID persistOrder(UUID customerId) {
+
+        return transactionTemplate.execute(status -> {
+            var savedID = orderRepository.saveAndFlush(
+                    OrderEntity.builder()
+                            .customerId(customerId)
+                            .build())
+                    .getId();
+
+            orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistOrder(UUID customerId, OrderStatus orderStatus) {
+
+        return transactionTemplate.execute(status -> {
+            var savedID = orderRepository.saveAndFlush(
+                    OrderEntity.builder()
+                            .status(orderStatus)
+                            .customerId(customerId)
+                            .build())
+                    .getId();
+
+            orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistOrderItem(UUID orderId, String sku, Long quantity) {
+        return transactionTemplate.execute(status -> {
+
+            var savedOrder = orderRepository.findById(orderId).orElseThrow();
+
+            OrderItemEntity orderItemEntity = OrderItemEntity.builder()
+                    .sku(sku)
+                    .description(DEFAULT_DESCRIPTION)
+                    .quantity(quantity)
+                    .unitPrice(DEFAULT_UNIT_PRICE)
+                    .build();
+
+            savedOrder.addItem(orderItemEntity);
+
+            orderRepository.saveAndFlush(savedOrder);
+
+            entityManager.clear();
+
+            savedOrder = orderRepository.findById(orderId).orElseThrow();
+
+            UUID orderItemId = savedOrder.getItems().stream().filter(item -> item.getSku().equals(sku))
+                    .findFirst().orElseThrow().getId();
+
+            orderItemsIds.add(orderItemId);
+
+            return orderItemId;
+        });
+    }
+
+    private static CreateOrderRequest createValidRequest(UUID customerId) {
+        return CreateOrderRequest.builder()
+                .customerId(customerId)
+                .currency(Currency.MXN)
+                .build();
     }
 }
