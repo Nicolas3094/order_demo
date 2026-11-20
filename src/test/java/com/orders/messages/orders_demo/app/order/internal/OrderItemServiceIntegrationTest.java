@@ -129,9 +129,9 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldCreateItemDecreaseStockAndUpdateOrderTotal() {
-        UUID orderId = persistOrder();
-        UUID productId = persistProduct();
+    public void shouldCreateItemDecreaseStockAndUpdateOrderTotalWithEqualSKU() {
+        UUID orderId = persistOrder(1L);
+        UUID productId = persistProduct(INITIAL_PRODUCT_STOCK);
         CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 2L);
 
         transactionTemplate.executeWithoutResult(status -> orderItemService.createOrderItem(orderId, request));
@@ -140,9 +140,30 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             OrderEntity order = orderRepository.findById(orderId).orElseThrow();
             ProductEntity product = productRepository.findById(productId).orElseThrow();
 
-            assertThat(order.getItems()).hasSize(2);
+            assertThat(order.getItems()).hasSize(1);
             assertThat(order.getAmountTotal()).isEqualByComparingTo("370.50");
             assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK - 2);
+        });
+    }
+
+    @Test
+    public void shouldCreateItemDecreaseStockAndUpdateOrderTotalWithNotEqualSKU() {
+        UUID newProductId = persistProduct("SKU-234", 5L);
+        UUID productId = persistProduct(INITIAL_PRODUCT_STOCK);
+        UUID orderId = persistOrder(1L);
+        CreateOrderItemRequest request = new CreateOrderItemRequest("SKU-234", 2L);
+
+        transactionTemplate.executeWithoutResult(status -> orderItemService.createOrderItem(orderId, request));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity order = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity product = productRepository.findById(productId).orElseThrow();
+            ProductEntity newProductEntity = productRepository.findById(newProductId).orElseThrow();
+
+            assertThat(order.getItems()).hasSize(2);
+            assertThat(order.getAmountTotal()).isEqualByComparingTo("370.50");
+            assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+            assertThat(newProductEntity.getQuantity()).isEqualTo(3L);
         });
     }
 
@@ -523,6 +544,24 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             var savedID = orderRepository.saveAndFlush(OrderEntity.builder().customerId(customerId).build()).getId();
 
             orderIds.add(savedID);
+
+            return savedID;
+        });
+    }
+
+    private UUID persistProduct(String sku, Long stock) {
+        return transactionTemplate.execute(status -> {
+            UUID savedID = productRepository.saveAndFlush(
+                    ProductEntity.builder()
+                            .sku(sku)
+                            .name("PRODUCT 1")
+                            .description("product 1")
+                            .price(new BigDecimal("123.50"))
+                            .quantity(stock)
+                            .build())
+                    .getId();
+
+            productIds.add(savedID);
 
             return savedID;
         });
