@@ -33,6 +33,7 @@ import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
 import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
 import com.orders.messages.orders_demo.app.payment.api.PaymentSucceededRequest;
+import com.orders.messages.orders_demo.app.payment.api.PaymentFailedRequest;
 import com.orders.messages.orders_demo.app.payment.internal.PaymentAttemptRepository;
 import com.orders.messages.orders_demo.app.payment.internal.PaymentProvider;
 import com.orders.messages.orders_demo.app.payment.internal.PaymentStatus;
@@ -157,7 +158,51 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldRecordFailedPaymentThroughHttpAndKeepOrderPendingWithReservedStockAndUnchangedTotal() {
+    void shouldRecordFailedPaymentThroughHttpAndKeepOrderPendingWithReservedStockAndUnchangedTotal() throws Exception {
+        final String sku = "SKU-FAILED-PAYMENT";
+        final String idempotencyKey = UUID.randomUUID().toString();
+
+        UUID customerId = postCustomer();
+        UUID productId = postProduct(sku, "123.00", 5L);
+        UUID orderId = postOrder(customerId);
+        OrderItemResponse existingItem = addOrderItem(orderId, sku, 2L);
+        UUID paymentId = postPaymentAttempt(orderId, idempotencyKey);
+        startProcessingPayment(orderId, paymentId, idempotencyKey);
+        var request = new PaymentFailedRequest(402, "Payment declined.");
+
+        mockMvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/failed", orderId, paymentId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(paymentId.toString()))
+                .andExpect(jsonPath("$.orderId").value(orderId.toString()))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.failureCode").value(402))
+                .andExpect(jsonPath("$.failureMessage").value("Payment declined."));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            var persistedProduct = productRepository.findById(productId).orElseThrow();
+            var persistedPayment = paymentAttemptRepository.findById(paymentId).orElseThrow();
+
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo("246.00");
+            assertThat(persistedOrder.getItems()).hasSize(1);
+            var persistedItem = persistedOrder.getItems().get(0);
+            assertThat(persistedItem.getId()).isEqualTo(existingItem.id());
+            assertThat(persistedItem.getQuantity()).isEqualTo(2L);
+            assertThat(persistedItem.getLineTotal()).isEqualByComparingTo("246.00");
+            assertThat(persistedProduct.getQuantity()).isEqualTo(3L);
+            assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(persistedPayment.getFailureCode()).isEqualTo(402);
+            assertThat(persistedPayment.getFailureMessage()).isEqualTo("Payment declined.");
+            assertThat(persistedPayment.getAmount()).isEqualByComparingTo("246.00");
+            assertThat(persistedPayment.getOrderId()).isEqualTo(orderId);
+            assertThat(persistedPayment.getIdempotencyKey()).isEqualTo(idempotencyKey);
+            assertThat(persistedPayment.getProviderRef()).isNull();
+            assertThat(paymentAttemptRepository.findByOrderId(orderId)).hasSize(1);
+        });
     }
 
     @Test
