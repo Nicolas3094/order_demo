@@ -141,6 +141,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             ProductEntity product = productRepository.findById(productId).orElseThrow();
 
             assertThat(order.getItems()).hasSize(1);
+            assertThat(order.getItems().get(0).getQuantity()).isEqualTo(3L);
             assertThat(order.getAmountTotal()).isEqualByComparingTo("370.50");
             assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK - 2);
         });
