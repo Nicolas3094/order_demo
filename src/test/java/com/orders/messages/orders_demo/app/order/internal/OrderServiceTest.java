@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import static org.assertj.core.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,11 +19,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
+
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
@@ -353,6 +351,36 @@ public class OrderServiceTest {
         Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.refundOrder(orderId));
 
         assertEquals("Order could not be found.", result.getMessage());
+    }
+
+    /*
+     * 
+     * paymentInProgress
+     * 
+     */
+
+    @Test
+    public void paymentInProgress_WhenOrderExists_ShouldSetStatusAsPaymentInProgress() {
+        fakeOrder.addItem(createOrderItem("SKU-123", 2L));
+        when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
+        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
+
+        OrderResponse result = orderService.paymentInProgress(orderId);
+
+        assertEquals(OrderStatus.PAYMENT_IN_PROGRESS, result.status());
+        assertThat(new BigDecimal("20")).isEqualTo(fakeOrder.getAmountTotal());
+        assertThat(fakeOrder.getItems()).hasSize(1);
+        assertThat(fakeOrder.getItems()).extracting(OrderItemEntity::getQuantity).contains(2L);
+        verify(orderRepository).save(fakeOrder);
+        verifyNoInteractions(productInternalApi);
+    }
+
+    @Test
+    public void paymentInProgress_WhenOrderNotFound_ShouldThrowOrderNotFoundException() {
+        Exception result = assertThrows(OrderNotFoundException.class, () -> orderService.paymentInProgress(orderId));
+
+        assertEquals("Order could not be found.", result.getMessage());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
     }
 
     private OrderEntity createOrder(OrderStatus status) {

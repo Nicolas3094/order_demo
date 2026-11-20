@@ -109,6 +109,22 @@ public class OrderService {
     }
 
     /**
+     * Sets the status as "payment in progress".
+     *
+     * @param id the order identifier.
+     * @return the updated order.
+     * @throws OrderNotFoundException if the order does not exist.
+     */
+    @Transactional
+    public OrderResponse paymentInProgress(UUID id) {
+        OrderEntity order = orderRepository.findById(id).orElseThrow(OrderNotFoundException::new);
+
+        order.paymentInProgress();
+
+        return OrderMapper.toResponse(orderRepository.save(order));
+    }
+
+    /**
      * Applies a state transition to an order and restores the stock of all
      * associated products.
      *
@@ -137,4 +153,5 @@ public class OrderService {
         return OrderMapper.toResponse(orderRepository.save(order));
 
     }
+
 }
