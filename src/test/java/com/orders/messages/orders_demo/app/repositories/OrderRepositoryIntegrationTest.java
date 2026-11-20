@@ -329,13 +329,6 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
                 .build();
     }
 
-    private OrderItemEntity createOrderItem(String descritpion, String unitPrince) {
-        return OrderItemEntity.builder()
-                .description(descritpion)
-                .unitPrice(new BigDecimal(unitPrince))
-                .build();
-    }
-
     private OrderItemEntity createOrderItem2() {
         return OrderItemEntity.builder()
                 .description("order item 2")
