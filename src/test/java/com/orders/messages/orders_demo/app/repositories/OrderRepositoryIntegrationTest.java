@@ -1,6 +1,7 @@
 package com.orders.messages.orders_demo.app.repositories;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -10,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
@@ -34,7 +37,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
     @Test
     public void shouldGetOrderByCustomerIdAndPageable() {
         CustomerEntity customer = customerRepository.save(createCustomer());
-        Pageable pageable = Pageable.ofSize(3);
+        Pageable pageable = PageRequest.of(0, 3, Sort.by("id").ascending());
         UUID orderId_1 = orderRepository.saveAndFlush(OrderEntity.builder()
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
@@ -51,13 +54,28 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
                 .build()).getId();
+        CustomerEntity otherCustomer = customerRepository.save(createCustomer());
+        UUID otherCustomerOrderId = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(otherCustomer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        List<UUID> expectedOrderIds = List.of(orderId_1, orderId_2, orderId_3, orderId_4).stream()
+                .sorted(Comparator.comparing(UUID::toString))
+                .toList();
         entityManager.clear();
 
         Page<OrderEntity> result = orderRepository.findByCustomerId(customer.getId(), pageable);
 
         assertThat(result).hasSize(3);
-        assertThat(result).extracting(OrderEntity::getId).containsExactlyInAnyOrder(orderId_1, orderId_2, orderId_3);
-        assertThat(result).extracting(OrderEntity::getId).doesNotContain(orderId_4);
+        assertThat(result).extracting(OrderEntity::getId).containsExactlyElementsOf(expectedOrderIds.subList(0, 3));
+        assertThat(result.getTotalElements()).isEqualTo(4);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+        assertThat(result).extracting(OrderEntity::getId).doesNotContain(otherCustomerOrderId);
+
+        Page<OrderEntity> nextPage = orderRepository.findByCustomerId(customer.getId(), pageable.next());
+
+        assertThat(nextPage).extracting(OrderEntity::getId).containsExactly(expectedOrderIds.get(3));
+        assertThat(nextPage.getTotalElements()).isEqualTo(4);
     }
 
     @Test
@@ -94,7 +112,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
     @Test
     public void shouldGetOrderByStatusAndCustomerIdAndPageable() {
         CustomerEntity customer = customerRepository.save(createCustomer());
-        Pageable pageable = Pageable.ofSize(3);
+        Pageable pageable = PageRequest.of(0, 3, Sort.by("id").ascending());
         UUID orderId_1 = orderRepository.saveAndFlush(OrderEntity.builder()
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
@@ -111,14 +129,36 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
                 .build()).getId();
+        CustomerEntity otherCustomer = customerRepository.save(createCustomer());
+        UUID otherCustomerOrderId = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(otherCustomer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        UUID cancelledOrderId = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .status(OrderStatus.CANCELLED)
+                .build()).getId();
+        List<UUID> expectedOrderIds = List.of(orderId_1, orderId_2, orderId_3, orderId_4).stream()
+                .sorted(Comparator.comparing(UUID::toString))
+                .toList();
         entityManager.clear();
 
         Page<OrderEntity> result = orderRepository.findByCustomerIdAndStatus(
                 customer.getId(), OrderStatus.PENDING_PAYMENT, pageable);
 
         assertThat(result).hasSize(3);
-        assertThat(result).extracting(OrderEntity::getId).containsExactlyInAnyOrder(orderId_1, orderId_2, orderId_3);
-        assertThat(result).extracting(OrderEntity::getId).doesNotContain(orderId_4);
+        assertThat(result).extracting(OrderEntity::getId).containsExactlyElementsOf(expectedOrderIds.subList(0, 3));
+        assertThat(result.getTotalElements()).isEqualTo(4);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+        assertThat(result).extracting(OrderEntity::getId).doesNotContain(otherCustomerOrderId);
+        assertThat(result).extracting(OrderEntity::getId).doesNotContain(cancelledOrderId);
+
+        Page<OrderEntity> nextPage = orderRepository.findByCustomerIdAndStatus(
+                customer.getId(), OrderStatus.PENDING_PAYMENT, pageable.next());
+
+        assertThat(nextPage).extracting(OrderEntity::getId).containsExactly(expectedOrderIds.get(3));
+        assertThat(nextPage.getTotalElements()).isEqualTo(4);
     }
 
     @Test
