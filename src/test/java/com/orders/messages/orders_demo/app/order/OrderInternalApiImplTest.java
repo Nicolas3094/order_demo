@@ -102,6 +102,34 @@ public class OrderInternalApiImplTest {
 
     /*
      * 
+     * markAsPaymentInProgress
+     * 
+     */
+
+    @Test
+    public void markAsPaymentInProgress_WhenOrderIsFound_ShouldMarkOrderAsPaymentInProgressAndSave() {
+        OrderEntity order = createOrder();
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+
+        orderInternalApi.markAsPaymentInProgress(ORDER_ID);
+
+        assertEquals(OrderStatus.PAYMENT_IN_PROGRESS, order.getStatus());
+        verify(orderRepository).findById(ORDER_ID);
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    public void markAsPaymentInProgress_WhenOrderIsNotFound_ShouldThrowOrderNotFoundException() {
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
+
+        OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
+                () -> orderInternalApi.markAsPaymentInProgress(ORDER_ID));
+
+        assertEquals(ORDER_NOT_FOUND_MESSAGE, result.getMessage());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+    /*
+     * 
      * validateCanReceivePayment
      * 
      */

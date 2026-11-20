@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,7 +48,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
     private final List<UUID> customerIds = new ArrayList<>();
 
     @AfterEach
-    void cleanUp() {
+    public void cleanUp() {
         transactionTemplate.executeWithoutResult(status -> {
             orderIds.forEach(orderRepository::deleteById);
             orderRepository.flush();
@@ -57,7 +58,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldMarkAsPaidAndCommitWithoutCallerTransaction() {
+    public void shouldMarkAsPaidAndCommitWithoutCallerTransaction() {
         UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
         Long initialVersion = readOrder(id).getVersion();
 
@@ -70,7 +71,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldRollBackPaymentWhenCallerTransactionFails() {
+    public void shouldRollBackPaymentWhenCallerTransactionFails() {
         UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
         Long initialVersion = readOrder(id).getVersion();
 
@@ -85,26 +86,64 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
         assertThat(persisted.getVersion()).isEqualTo(initialVersion);
     }
 
+    @Test
+    public void shouldMarkAsPaymentInProgressAndCommitWithoutCallerTransaction() {
+        UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
+        Long initialVersion = readOrder(id).getVersion();
+
+        orderInternalApi.markAsPaymentInProgress(id);
+
+        OrderEntity persisted = readOrder(id);
+        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(persisted.getVersion()).isEqualTo(initialVersion + 1);
+    }
+
+    @Test
+    public void shouldRollBackPaymentInProgressWhenCallerTransactionFails() {
+        UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
+        Long initialVersion = readOrder(id).getVersion();
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            orderInternalApi.markAsPaymentInProgress(id);
+            entityManager.flush(); // Force SQL before the simulated failure.
+            throw new IllegalStateException("Simulated failure");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("Simulated failure");
+
+        OrderEntity persisted = readOrder(id);
+        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(persisted.getVersion()).isEqualTo(initialVersion);
+    }
+
     @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, names = "PENDING_PAYMENT", mode = EnumSource.Mode.EXCLUDE)
-    void shouldRejectPaymentAndPreserveTerminalState(OrderStatus state) {
+    @MethodSource("rejectPaymentStates")
+    public void shouldRejectSetPaymentInProgressAndPreserveTerminalState(
+            OrderStatus state, Class<? extends RuntimeException> expectedException) {
         UUID id = persistOrder(state);
         Long initialVersion = readOrder(id).getVersion();
-        Class<? extends RuntimeException> expected = switch (state) {
-            case PAID -> OrderAlreadyPaidException.class;
-            case CANCELLED -> OrderAlreadyCancelledException.class;
-            case EXPIRED -> OrderAlreadyExpiredException.class;
-            default -> InvalidOrderStateException.class;
-        };
 
-        assertThatThrownBy(() -> orderInternalApi.markAsPaid(id)).isInstanceOf(expected);
+        assertThatThrownBy(() -> orderInternalApi.markAsPaymentInProgress(id)).isInstanceOf(expectedException);
+
+        OrderEntity persisted = readOrder(id);
+        assertThat(persisted.getStatus()).isEqualTo(state);
+        assertThat(persisted.getVersion()).isEqualTo(initialVersion);
+    }
+
+    @ParameterizedTest
+    @MethodSource("rejectPaymentStates")
+    public void shouldRejectPaymentAndPreserveTerminalState(
+            OrderStatus state, Class<? extends RuntimeException> expectedException) {
+        UUID id = persistOrder(state);
+        Long initialVersion = readOrder(id).getVersion();
+
+        assertThatThrownBy(() -> orderInternalApi.markAsPaid(id)).isInstanceOf(expectedException);
+
         OrderEntity persisted = readOrder(id);
         assertThat(persisted.getStatus()).isEqualTo(state);
         assertThat(persisted.getVersion()).isEqualTo(initialVersion);
     }
 
     @Test
-    void shouldReturnPersistedOrder() {
+    public void shouldReturnPersistedOrder() {
         UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
         OrderEntity persisted = readOrder(id);
 
@@ -121,13 +160,13 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
 
     @ParameterizedTest
     @EnumSource(OrderStatus.class)
-    void shouldValidateExistenceRegardlessOfState(OrderStatus state) {
+    public void shouldValidateExistenceRegardlessOfState(OrderStatus state) {
         UUID id = persistOrder(state);
         assertThatCode(() -> orderInternalApi.validateOrderExists(id)).doesNotThrowAnyException();
     }
 
     @Test
-    void shouldAllowPaymentAndReturnPersistedAmountForPendingOrder() {
+    public void shouldAllowPaymentAndReturnPersistedAmountForPendingOrder() {
         UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
 
         assertThatCode(() -> orderInternalApi.validateCanReceivePayment(id)).doesNotThrowAnyException();
@@ -139,7 +178,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
 
     @ParameterizedTest
     @EnumSource(value = OrderStatus.class, names = "PENDING_PAYMENT", mode = EnumSource.Mode.EXCLUDE)
-    void shouldRejectPaymentQueriesForTerminalOrders(OrderStatus state) {
+    public void shouldRejectPaymentQueriesForTerminalOrders(OrderStatus state) {
         UUID id = persistOrder(state);
 
         assertThatThrownBy(() -> orderInternalApi.validateCanReceivePayment(id))
@@ -151,14 +190,16 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
 
     @ParameterizedTest
     @MethodSource("operationsRequiringExistingOrder")
-    void shouldRejectMissingOrder(Consumer<OrderInternalApi> operation) {
-        assertThatThrownBy(() -> operation.accept(orderInternalApi))
-                .isInstanceOf(OrderNotFoundException.class);
+    public void shouldRejectMissingOrder(Consumer<OrderInternalApi> operation) {
+
+        assertThatThrownBy(() -> operation.accept(orderInternalApi)).isInstanceOf(OrderNotFoundException.class);
+
     }
 
     private static Stream<Consumer<OrderInternalApi>> operationsRequiringExistingOrder() {
         UUID missingId = UUID.randomUUID();
         return Stream.of(
+                api -> api.markAsPaymentInProgress(missingId),
                 api -> api.markAsPaid(missingId),
                 api -> api.getOrderById(missingId),
                 api -> api.validateOrderExists(missingId),
@@ -166,11 +207,23 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
                 api -> api.getOrderDataForPayment(missingId));
     }
 
+    private static Stream<Arguments> rejectPaymentStates() {
+        return Stream.of(
+                Arguments.of(OrderStatus.PAID, OrderAlreadyPaidException.class),
+                Arguments.of(OrderStatus.CANCELLED, OrderAlreadyCancelledException.class),
+                Arguments.of(OrderStatus.EXPIRED, OrderAlreadyExpiredException.class),
+                Arguments.of(OrderStatus.PAYMENT_IN_PROGRESS, InvalidOrderStateException.class),
+                Arguments.of(OrderStatus.REFUNDED, InvalidOrderStateException.class));
+    }
+
     private UUID persistOrder(OrderStatus state) {
         return transactionTemplate.execute(status -> {
+
             CustomerEntity customer = customerRepository.saveAndFlush(
                     new CustomerEntity(UUID.randomUUID() + "@example.com", "Test Customer"));
+
             customerIds.add(customer.getId());
+
             OrderEntity order = OrderEntity.builder()
                     .customerId(customer.getId())
                     .currency(Currency.MXN)
@@ -180,8 +233,11 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
                             .unitPrice(new BigDecimal("1250.50"))
                             .build())
                     .build();
+
             OrderEntity saved = orderRepository.saveAndFlush(order);
+
             orderIds.add(saved.getId());
+
             return saved.getId();
         });
     }
@@ -189,8 +245,11 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
     private OrderEntity readOrder(UUID id) {
         // Read in a fresh persistence context after the previous transaction ended.
         return transactionTemplate.execute(status -> {
+
             entityManager.clear();
+
             return orderRepository.findById(id).orElseThrow();
         });
     }
+
 }

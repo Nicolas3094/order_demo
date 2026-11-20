@@ -2,6 +2,8 @@ package com.orders.messages.orders_demo.app.order.api;
 
 import java.util.UUID;
 
+import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
+
 /**
  * Internal API for order management.
  */
@@ -40,6 +42,14 @@ public interface OrderInternalApi {
      * @throws OrderNotFoundException if the order does not exist.
      */
     void markAsPaid(UUID id);
+
+    /**
+     * Marks the order with the specified identifier as payment in progress.
+     *
+     * @param orderId the order identifier.
+     * @throws OrderNotFoundException if the order does not exist.
+     */
+    void markAsPaymentInProgress(UUID orderId);
 
     /**
      * Retrieves the order data for payment processing.

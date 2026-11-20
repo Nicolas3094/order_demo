@@ -39,6 +39,16 @@ public class OrderInternalApiImpl implements OrderInternalApi {
     }
 
     @Override
+    @Transactional
+    public void markAsPaymentInProgress(UUID orderId) {
+        OrderEntity order = getOrder(orderId);
+
+        order.paymentInProgress();
+
+        orderRepository.save(order);
+    }
+
+    @Override
     public void validateCanReceivePayment(UUID id) {
         OrderEntity order = getOrder(id);
 
@@ -66,4 +76,5 @@ public class OrderInternalApiImpl implements OrderInternalApi {
     private OrderEntity getOrder(UUID id) {
         return orderRepository.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
     }
+
 }
