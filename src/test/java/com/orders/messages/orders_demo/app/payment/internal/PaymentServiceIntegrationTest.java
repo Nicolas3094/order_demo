@@ -303,6 +303,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
                 case PAID -> order.markAsPaid();
                 case CANCELLED -> order.cancelOrder();
                 case EXPIRED -> order.expire();
+                case PAYMENT_IN_PROGRESS -> order.paymentInProgress();
                 case REFUNDED -> {
                     order.markAsPaid();
                     order.refund();

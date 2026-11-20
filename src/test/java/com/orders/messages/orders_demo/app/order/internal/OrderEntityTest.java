@@ -2,7 +2,10 @@ package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -11,11 +14,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
-import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyCancelledException;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderEntityTest {
@@ -35,25 +40,26 @@ public class OrderEntityTest {
 
     }
 
-    @Test
-    public void cancelOrder_WhenOrderHasPendingPaymentState_ShouldChangeStatusToCancelled() {
-        fakeOrder.cancelOrder();
+    @ParameterizedTest
+    @MethodSource("orderTransitionsFromPending")
+    public void stateChange_WhenOrderIsPending_ShouldChangeToExpectedStatus(
+            Consumer<OrderEntity> operation, OrderStatus expectedStatus) {
+        operation.accept(fakeOrder);
 
-        assertEquals(OrderStatus.CANCELLED, fakeOrder.getStatus());
+        assertEquals(expectedStatus, fakeOrder.getStatus());
     }
 
-    @Test
-    public void markAsPaid_WhenOrderHasPendingPaymentState_ShouldChangeStatusToPaid() {
-        fakeOrder.markAsPaid();
+    @ParameterizedTest
+    @MethodSource("invalidStateTransitions")
+    public void stateChange_WhenCurrentStateDoesNotAllowOperation_ShouldRejectAndPreserveStatus(
+            Consumer<OrderEntity> mainOperation, Consumer<OrderEntity> prevOperation, String expectedMessage) {
+        prevOperation.accept(fakeOrder);
+        var initialStatus = fakeOrder.getStatus();
 
-        assertEquals(OrderStatus.PAID, fakeOrder.getStatus());
-    }
+        Exception result = assertThrows(InvalidOrderStateException.class, () -> mainOperation.accept(fakeOrder));
 
-    @Test
-    public void expire_WhenOrderHasPendingPaymentState_ShouldChangeStatusToExpired() {
-        fakeOrder.expire();
-
-        assertEquals(OrderStatus.EXPIRED, fakeOrder.getStatus());
+        assertEquals(expectedMessage, result.getMessage());
+        assertEquals(initialStatus, fakeOrder.getStatus());
     }
 
     @Test
@@ -65,111 +71,17 @@ public class OrderEntityTest {
         assertEquals(OrderStatus.REFUNDED, fakeOrder.getStatus());
     }
 
-    @Test
-    public void refund_WhenOrderIsPending_ShouldThrowInvalidOrderStateExceptionWithMessage() {
+    @ParameterizedTest
+    @MethodSource("refundTransitionsError")
+    public void refund_WhenOrderIsNotFromPaid_ShouldThrowInvalidOrderStateExceptionWithMessage(
+            Consumer<OrderEntity> operation, String expectedMessage) {
+        operation.accept(fakeOrder);
+        var initialStatus = fakeOrder.getStatus();
 
         Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.refund());
 
-        assertEquals("Only paid orders can be refunded.", result.getMessage());
-    }
-
-    @Test
-    public void cancelOrder_WhenOrderIsCancelled_ShouldThrowCancelledExceptionWithMessage() {
-        fakeOrder.cancelOrder();
-
-        Exception result = assertThrows(OrderAlreadyCancelledException.class, () -> fakeOrder.cancelOrder());
-
-        assertEquals("Order is already cancelled.", result.getMessage());
-    }
-
-    @Test
-    public void markAsPaid_WhenOrderIsCancelled_ShouldThrowCancelledExceptionWithMessage() {
-        fakeOrder.cancelOrder();
-
-        Exception result = assertThrows(OrderAlreadyCancelledException.class, () -> fakeOrder.markAsPaid());
-
-        assertEquals("Order is already cancelled.", result.getMessage());
-    }
-
-    @Test
-    public void expire_WhenOrderIsCancelled_ShouldThrowCancelledExceptionWithMessage() {
-        fakeOrder.cancelOrder();
-
-        Exception result = assertThrows(OrderAlreadyCancelledException.class, () -> fakeOrder.expire());
-
-        assertEquals("Order is already cancelled.", result.getMessage());
-    }
-
-    @Test
-    public void refund_WhenOrderIsCancelled_ShouldThrowCancelledExceptionWithMessage() {
-        fakeOrder.cancelOrder();
-
-        Exception result = assertThrows(OrderAlreadyCancelledException.class, () -> fakeOrder.refund());
-
-        assertEquals("Order is already cancelled.", result.getMessage());
-    }
-
-    @Test
-    public void cancelOrder_WhenOrderIsExpired_ShouldThrowInvalidOrderStateExceptionWithMessage() {
-        fakeOrder.expire();
-
-        Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.cancelOrder());
-
-        assertEquals("Expired orders cannot be modified.", result.getMessage());
-    }
-
-    @Test
-    public void markAsPaid_WhenOrderIsExpired_ShouldThrowInvalidOrderStateExceptionWithMessage() {
-        fakeOrder.expire();
-
-        Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.markAsPaid());
-
-        assertEquals("Expired orders cannot be modified.", result.getMessage());
-    }
-
-    @Test
-    public void expire_WhenOrderIsExpired_ShouldThrowInvalidOrderStateExceptionWithMessage() {
-        fakeOrder.expire();
-
-        Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.expire());
-
-        assertEquals("Expired orders cannot be modified.", result.getMessage());
-    }
-
-    @Test
-    public void refund_WhenOrderIsExpired_ShouldThrowInvalidOrderStateExceptionWithMessage() {
-        fakeOrder.expire();
-
-        Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.refund());
-
-        assertEquals("Expired orders cannot be modified.", result.getMessage());
-    }
-
-    @Test
-    public void cancelOrder_WhenOrderIsPaid_ShouldThrowInvalidOrderStateExceptionWithMessage() {
-        fakeOrder.markAsPaid();
-
-        Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.cancelOrder());
-
-        assertEquals("Paid orders cannot be modified.", result.getMessage());
-    }
-
-    @Test
-    public void markAsPaid_WhenOrderIsPaid_ShouldThrowInvalidOrderStateExceptionWithMessage() {
-        fakeOrder.markAsPaid();
-
-        Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.markAsPaid());
-
-        assertEquals("Paid orders cannot be modified.", result.getMessage());
-    }
-
-    @Test
-    public void expire_WhenOrderIsPaid_ShouldThrowInvalidOrderStateExceptionWithMessage() {
-        fakeOrder.markAsPaid();
-
-        Exception result = assertThrows(InvalidOrderStateException.class, () -> fakeOrder.expire());
-
-        assertEquals("Paid orders cannot be modified.", result.getMessage());
+        assertEquals(expectedMessage, result.getMessage());
+        assertEquals(initialStatus, fakeOrder.getStatus());
     }
 
     @Test
@@ -186,22 +98,6 @@ public class OrderEntityTest {
         assertEquals(1, fakeOrder.getItems().size());
         assertEquals(fakeOrder, item.getOrder());
         assertEquals(new BigDecimal("200.00"), fakeOrder.getAmountTotal());
-    }
-
-    @Test
-    public void removeItem_WhenItemExists_ShouldDetachOrderAndRecalculateAmountTotal() {
-        OrderItemEntity item = OrderItemEntity.builder()
-                .sku("SKU")
-                .description("Item")
-                .unitPrice(new BigDecimal("100.00"))
-                .quantity(2L)
-                .build();
-        fakeOrder.addItem(item);
-
-        fakeOrder.removeItem(item);
-
-        assertEquals(0, fakeOrder.getItems().size());
-        assertEquals(BigDecimal.ZERO, fakeOrder.getAmountTotal());
     }
 
     @Test
@@ -245,6 +141,22 @@ public class OrderEntityTest {
         assertEquals(5L, existingItem.getQuantity());
         assertEquals(new BigDecimal("500.00"), existingItem.getLineTotal());
         assertEquals(new BigDecimal("500.00"), fakeOrder.getAmountTotal());
+    }
+
+    @Test
+    public void removeItem_WhenItemExists_ShouldDetachOrderAndRecalculateAmountTotal() {
+        OrderItemEntity item = OrderItemEntity.builder()
+                .sku("SKU")
+                .description("Item")
+                .unitPrice(new BigDecimal("100.00"))
+                .quantity(2L)
+                .build();
+        fakeOrder.addItem(item);
+
+        fakeOrder.removeItem(item);
+
+        assertEquals(0, fakeOrder.getItems().size());
+        assertEquals(BigDecimal.ZERO, fakeOrder.getAmountTotal());
     }
 
     @Test
@@ -318,6 +230,55 @@ public class OrderEntityTest {
                 () -> fakeOrder.validateCurrency(Currency.USD));
 
         assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
+    }
+
+    private static Stream<Arguments> orderTransitionsFromPending() {
+        return Stream.of(
+                Arguments.of(
+                        (Consumer<OrderEntity>) OrderEntity::cancelOrder,
+                        OrderStatus.CANCELLED),
+                Arguments.of(
+                        (Consumer<OrderEntity>) OrderEntity::markAsPaid,
+                        OrderStatus.PAID),
+                Arguments.of(
+                        (Consumer<OrderEntity>) OrderEntity::expire,
+                        OrderStatus.EXPIRED),
+                Arguments.of(
+                        (Consumer<OrderEntity>) OrderEntity::paymentInProgress,
+                        OrderStatus.PAYMENT_IN_PROGRESS));
+    }
+
+    private static Stream<Arguments> invalidStateTransitions() {
+        List<Map.Entry<Consumer<OrderEntity>, String>> cases = List.of(
+                Map.entry(OrderEntity::cancelOrder, "Order is already cancelled."),
+                Map.entry(OrderEntity::markAsPaid, "Paid orders cannot be modified."),
+                Map.entry(OrderEntity::expire, "Expired orders cannot be modified."),
+                Map.entry(OrderEntity::paymentInProgress, "Order is under a payment process."));
+
+        List<Consumer<OrderEntity>> operationsToReject = List.of(OrderEntity::expire, OrderEntity::markAsPaid,
+                OrderEntity::cancelOrder, OrderEntity::paymentInProgress);
+
+        return operationsToReject.stream()
+                .flatMap(mainOperation -> cases.stream()
+                        .map(mapEntity -> Arguments.of(
+                                mainOperation,
+                                mapEntity.getKey(),
+                                mapEntity.getValue())));
+    }
+
+    private static Stream<Arguments> refundTransitionsError() {
+        return Stream.of(
+                Arguments.of(
+                        (Consumer<OrderEntity>) OrderEntity::cancelOrder,
+                        "Order is already cancelled."),
+                Arguments.of(
+                        (Consumer<OrderEntity>) order -> {
+                        },
+                        "Only paid orders can be refunded."),
+                Arguments.of((Consumer<OrderEntity>) OrderEntity::expire,
+                        "Expired orders cannot be modified."),
+                Arguments.of((Consumer<OrderEntity>) OrderEntity::paymentInProgress,
+                        "Order is under a payment process."));
     }
 
 }

@@ -164,6 +164,10 @@ public class OrderEntity {
         changeStatusFromPending(OrderStatus.EXPIRED);
     }
 
+    public void paymentInProgress() {
+        changeStatusFromPending(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
     public void validateCanAcceptPayments() {
         if (!OrderStatus.PENDING_PAYMENT.equals(status)) {
             throw new InvalidOrderStateException("Only pending orders can be modified.");
@@ -177,6 +181,7 @@ public class OrderEntity {
                     "Only paid orders can be refunded.");
             case EXPIRED -> throw new OrderAlreadyExpiredException();
             case PAID -> status = OrderStatus.REFUNDED;
+            case PAYMENT_IN_PROGRESS -> throw new InvalidOrderStateException("Order is under a payment process.");
             default -> throw new InvalidOrderStateException("Unknown order state");
         }
     }
@@ -195,6 +200,7 @@ public class OrderEntity {
             case PENDING_PAYMENT -> status = newStatus;
             case EXPIRED -> throw new OrderAlreadyExpiredException();
             case PAID -> throw new OrderAlreadyPaidException();
+            case PAYMENT_IN_PROGRESS -> throw new InvalidOrderStateException("Order is under a payment process.");
             default -> throw new InvalidOrderStateException("Unknown order state");
         }
     }

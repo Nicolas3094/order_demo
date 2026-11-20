@@ -8,6 +8,7 @@ package com.orders.messages.orders_demo.app.order.internal;
  */
 public enum OrderStatus {
     PENDING_PAYMENT,
+    PAYMENT_IN_PROGRESS,
     PAID,
     CANCELLED,
     EXPIRED,
