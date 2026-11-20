@@ -81,8 +81,16 @@ public class PaymentAttemptService {
         Optional<PaymentAttemptEntity> paymentOpt = paymentAttemptRepository
                 .findByIdempotencyKey(paymentRequest.idempotencyKey());
 
-        if (paymentOpt.isPresent()) {
-            return PaymentAttemptMapper.toResponse(paymentOpt.get());
+        boolean hasSameKey = paymentOpt.isPresent();
+
+        if (hasSameKey) {
+            boolean comesFromSameOrder = paymentOpt.get().getOrderId().equals(orderData.orderId());
+
+            if (comesFromSameOrder) {
+                return PaymentAttemptMapper.toResponse(paymentOpt.get());
+            }
+
+            throw new InvalidPaymentStateException("Requested order ID is not equal to payment's order.");
         }
 
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository

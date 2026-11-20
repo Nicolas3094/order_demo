@@ -173,7 +173,7 @@ public class PaymentAttemptServiceTest {
     }
 
     @Test
-    public void createPaymentAttempt_WhenIdempotencyKeyExists_ShouldReturnExistingPayment() {
+    public void createPaymentAttempt_WhenIdempotencyKeyExistsForSameOrder_ShouldReturnExistingPayment() {
         CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.NONE,
                 DEFAULT_IDEMPOTENCY_KEY);
         PaymentAttemptEntity expectedPayment = createPaymentAttemptWithStatusAndOrder(orderId,
@@ -187,6 +187,26 @@ public class PaymentAttemptServiceTest {
         assertEquals(expectedPayment.getId(), result.id());
         verify(orderInternalApi).getOrderDataForPayment(orderId);
         verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    public void createPaymentAttempt_WhenIdempotencyKeyExistsForAnotherOrder_ShouldRejectWithoutSaving() {
+        UUID otherOrderId = UUID.randomUUID();
+        CreatePaymentAttemptRequest request = new CreatePaymentAttemptRequest(PaymentProvider.NONE,
+                DEFAULT_IDEMPOTENCY_KEY);
+        PaymentAttemptEntity existingPayment = createPaymentAttemptWithStatusAndOrder(otherOrderId,
+                PaymentStatus.CREATED);
+        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, DEFAULT_AMOUNT_TOTAL));
+        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY))
+                .thenReturn(Optional.of(existingPayment));
+
+        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, request));
+
+        assertEquals("Requested order ID is not equal to payment's order.", result.getMessage());
+        assertEquals(otherOrderId, existingPayment.getOrderId());
+        assertEquals(PaymentStatus.CREATED, existingPayment.getStatus());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
     }
 
