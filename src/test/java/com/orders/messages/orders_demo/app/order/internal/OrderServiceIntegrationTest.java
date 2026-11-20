@@ -187,6 +187,32 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
         });
     }
 
+    @Test
+    public void shouldPersistOrderStatusAsPaymentInProgress() {
+        UUID orderId = persistOrder();
+        UUID productId = persistProduct();
+
+        orderService.paymentInProgress(orderId);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(persistedOrder.getId()).isEqualTo(orderId);
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
+        });
+    }
+
+    @Test
+    public void shouldRejectOnMissingOrderWhenSettingPayment() {
+        UUID nonExistentOrderId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> orderService.paymentInProgress(nonExistentOrderId))
+                .isInstanceOf(OrderNotFoundException.class)
+                .hasMessage("Order could not be found.");
+    }
+
     @ParameterizedTest
     @EnumSource(value = OrderStatus.class, names = "PENDING_PAYMENT", mode = EnumSource.Mode.EXCLUDE)
     public void shouldRejectCancellingOrderInInvalidState(OrderStatus orderStatus) {
