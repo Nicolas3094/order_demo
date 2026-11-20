@@ -1,6 +1,5 @@
 package com.orders.messages.orders_demo.app.order;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -83,6 +82,7 @@ public class OrderInternalApiImpl implements OrderInternalApi {
 
         return new OrderData(
                 order.getId(),
+                order.getCustomerId(),
                 order.getAmountTotal());
     }
 

@@ -7,6 +7,9 @@ import java.util.function.Consumer;
 
 import org.springframework.stereotype.Service;
 
+import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
+import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
+import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
@@ -22,11 +25,13 @@ public class PaymentAttemptService {
 
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final OrderInternalApi orderInternalApi;
+    private final CustomerInternalApi customerInternalApi;
 
     public PaymentAttemptService(PaymentAttemptRepository paymentAttemptRepository,
-            OrderInternalApi orderInternalApi) {
+            OrderInternalApi orderInternalApi, CustomerInternalApi customerInternalApi) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.orderInternalApi = orderInternalApi;
+        this.customerInternalApi = customerInternalApi;
     }
 
     /**
@@ -92,6 +97,7 @@ public class PaymentAttemptService {
         }
 
         OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
+        validateCustomerCanStartPayment(orderData.customerId());
 
         orderInternalApi.markAsPaymentInProgress(orderId);
 
@@ -118,6 +124,8 @@ public class PaymentAttemptService {
         return updatePaymentAttemptState(orderId, paymentId, payment -> {
 
             orderInternalApi.validateCanReceivePayment(orderId);
+            UUID customerId = orderInternalApi.getOrderById(orderId).customerId();
+            validateCustomerCanStartPayment(customerId);
 
             payment.startProcessing();
         });
@@ -228,6 +236,15 @@ public class PaymentAttemptService {
         action.accept(paymentAttempt);
 
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(paymentAttempt));
+    }
+
+    /** Validates the customer independently of the order's payment state. */
+    private void validateCustomerCanStartPayment(UUID customerId) {
+        CustomerResponse customer = customerInternalApi.getCustomer(customerId);
+
+        if (CustomerStatus.BLOCKED.equals(customer.status())) {
+            throw new InvalidPaymentStateException("Blocked customers cannot start payments.");
+        }
     }
 
     /**

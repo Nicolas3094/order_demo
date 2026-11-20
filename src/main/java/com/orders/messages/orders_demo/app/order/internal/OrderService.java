@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
+import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
+import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
@@ -73,7 +75,13 @@ public class OrderService {
 
     @Transactional
     public OrderCreationResult createOrReuseOrder(CreateOrderRequest request) {
-        UUID customerId = customerInternalApi.getCustomer(request.customerId()).id();
+        CustomerResponse customerResponse = customerInternalApi.getCustomer(request.customerId());
+
+        if (CustomerStatus.BLOCKED.equals(customerResponse.status())) {
+            throw new InvalidOrderStateException("Blocked customers cannot create or reuse orders.");
+        }
+
+        UUID customerId = customerResponse.id();
 
         lockOrderCreation(customerId);
 

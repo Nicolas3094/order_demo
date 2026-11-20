@@ -461,6 +461,19 @@ public class OrderServiceTest {
         verifyNoInteractions(orderRepository, jdbcTemplate);
     }
 
+    @Test
+    void createOrReuseOrder_WhenCustomerIsBlocked_ShouldRejectBeforeQueryingOrders() {
+        UUID customerId = UUID.randomUUID();
+        when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
+                .id(customerId).status(CustomerStatus.BLOCKED).build());
+
+        assertThatThrownBy(() -> orderService.createOrReuseOrder(openOrderRequest(customerId, Currency.MXN)))
+                .isInstanceOf(InvalidOrderStateException.class)
+                .hasMessage("Blocked customers cannot create or reuse orders.");
+
+        verifyNoInteractions(orderRepository, jdbcTemplate, productInternalApi);
+    }
+
     private void mockExistingCustomer(UUID customerId) {
         when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
                 .id(customerId).email("customer@example.com").name("Test Customer")

@@ -269,6 +269,115 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
     }
 
+    @Test
+    void shouldRejectNewPaymentForBlockedCustomerWith409WithoutChangingOrder() throws Exception {
+        UUID orderId = persistOrder();
+        blockCustomerForOrder(orderId);
+        long initialCount = paymentRepository.count();
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, UUID.randomUUID().toString());
+
+        mockMvc.perform(post(BASE_PATH, orderId).contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Blocked customers cannot start payments."));
+
+        assertThat(paymentRepository.count()).isEqualTo(initialCount);
+        assertThat(paymentRepository.findByOrderId(orderId)).isEmpty();
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+    }
+
+    @Test
+    void shouldRejectProcessingWhenCustomerWasBlockedAfterPaymentCreation() throws Exception {
+        UUID orderId = persistOrder();
+        UUID paymentId = createPaymentThroughHttp(orderId, UUID.randomUUID().toString());
+        blockCustomerForOrder(orderId);
+        Long version = orderRepository.findById(orderId).orElseThrow().getVersion();
+
+        mockMvc.perform(patch(BASE_PATH + "/{paymentId}/processing", orderId, paymentId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Blocked customers cannot start payments."));
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CREATED);
+        var order = orderRepository.findById(orderId).orElseThrow();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(order.getVersion()).isEqualTo(version);
+    }
+
+    @Test
+    void shouldReuseExistingPaymentEvenIfCustomerWasBlockedAfterCreation() throws Exception {
+        UUID orderId = persistOrder();
+        String key = UUID.randomUUID().toString();
+        UUID paymentId = createPaymentThroughHttp(orderId, key);
+        blockCustomerForOrder(orderId);
+
+        UUID repeatedId = createPaymentThroughHttp(orderId, key);
+
+        assertThat(repeatedId).isEqualTo(paymentId);
+        assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
+    @Test
+    void shouldAllowSucceededNotificationForBlockedCustomerWithExistingPayment() throws Exception {
+        UUID orderId = persistOrder();
+        UUID paymentId = createPaymentThroughHttp(orderId, UUID.randomUUID().toString());
+        mockMvc.perform(patch(BASE_PATH + "/{paymentId}/processing", orderId, paymentId))
+                .andExpect(status().isOk());
+        blockCustomerForOrder(orderId);
+
+        mockMvc.perform(patch(BASE_PATH + "/{paymentId}/succeeded", orderId, paymentId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new PaymentSucceededRequest("blocked-customer-ref"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"));
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAID);
+    }
+
+    @Test
+    void shouldAllowFailedNotificationForBlockedCustomerWithExistingPayment() throws Exception {
+        UUID orderId = persistOrder();
+        UUID paymentId = createPaymentThroughHttp(orderId, UUID.randomUUID().toString());
+        mockMvc.perform(patch(BASE_PATH + "/{paymentId}/processing", orderId, paymentId))
+                .andExpect(status().isOk());
+        blockCustomerForOrder(orderId);
+
+        mockMvc.perform(patch(BASE_PATH + "/{paymentId}/failed", orderId, paymentId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new PaymentFailedRequest(402, "Declined"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+    }
+
+    @Test
+    void shouldAllowCancelledNotificationForBlockedCustomerWithExistingPayment() throws Exception {
+        UUID orderId = persistOrder();
+        UUID paymentId = createPaymentThroughHttp(orderId, UUID.randomUUID().toString());
+        mockMvc.perform(patch(BASE_PATH + "/{paymentId}/processing", orderId, paymentId))
+                .andExpect(status().isOk());
+        blockCustomerForOrder(orderId);
+
+        mockMvc.perform(patch(BASE_PATH + "/{paymentId}/cancel", orderId, paymentId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+    }
+
+    private void blockCustomerForOrder(UUID orderId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            UUID customerId = orderRepository.findById(orderId).orElseThrow().getCustomerId();
+            var customer = customerRepository.findById(customerId).orElseThrow();
+            customer.deactivate();
+            customerRepository.saveAndFlush(customer);
+        });
+    }
+
     private UUID createPaymentThroughHttp(UUID orderId, String key) throws Exception {
         var result = mockMvc.perform(post(BASE_PATH, orderId)
                 .contentType(MediaType.APPLICATION_JSON)

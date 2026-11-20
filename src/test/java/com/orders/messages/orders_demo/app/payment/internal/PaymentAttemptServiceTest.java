@@ -24,6 +24,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
+import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
+import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
+import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
@@ -41,6 +45,9 @@ public class PaymentAttemptServiceTest {
     @Mock
     private OrderInternalApi orderInternalApi;
 
+    @Mock
+    private CustomerInternalApi customerInternalApi;
+
     @InjectMocks
     private PaymentAttemptService paymentAttemptService;
 
@@ -49,12 +56,14 @@ public class PaymentAttemptServiceTest {
     private static final BigDecimal DEFAULT_AMOUNT_TOTAL = BigDecimal.valueOf(100.00);
 
     private UUID orderId;
+    private UUID customerId;
     private UUID paymentId;
     private ArgumentCaptor<PaymentAttemptEntity> paymentCaptor;
 
     @BeforeEach
     public void setup() {
         orderId = UUID.randomUUID();
+        customerId = UUID.randomUUID();
         paymentCaptor = ArgumentCaptor.forClass(PaymentAttemptEntity.class);
     }
 
@@ -139,9 +148,11 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void createPaymentAttempt_WhenOrderExistsAndIdempotencyIsUnique_ShouldSavePayment() {
+        mockCustomer(CustomerStatus.ACTIVE);
         CreatePaymentAttemptRequest paymentRequest = new CreatePaymentAttemptRequest(
                 PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
-        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, DEFAULT_AMOUNT_TOTAL));
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
         mockPaymentRepositorySave();
 
         PaymentAttemptResponse result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
@@ -214,6 +225,9 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void startProcessing_WhenPaymentIsFoundAndOrderCanAcceptPayments_ShouldSavePaymentAsProcessing() {
+        mockCustomer(CustomerStatus.ACTIVE);
+        when(orderInternalApi.getOrderById(orderId)).thenReturn(OrderResponse.builder()
+                .setId(orderId).customerId(customerId).build());
         PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
@@ -269,6 +283,9 @@ public class PaymentAttemptServiceTest {
 
     @Test
     public void startProcessing_WhenPaymentIsAlreadyProcessing_ShouldThrowInvalidPaymentStateException() {
+        mockCustomer(CustomerStatus.ACTIVE);
+        when(orderInternalApi.getOrderById(orderId)).thenReturn(OrderResponse.builder()
+                .setId(orderId).customerId(customerId).build());
         PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
@@ -284,6 +301,9 @@ public class PaymentAttemptServiceTest {
     @EnumSource(value = PaymentStatus.class, names = { "SUCCEEDED", "FAILED", "CANCELLED" })
     public void startProcessing_WhenPaymentIsInTerminalState_ShouldThrowInvalidPaymentStateException(
             PaymentStatus paymentStatus) {
+        mockCustomer(CustomerStatus.ACTIVE);
+        when(orderInternalApi.getOrderById(orderId)).thenReturn(OrderResponse.builder()
+                .setId(orderId).customerId(customerId).build());
         PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
@@ -532,8 +552,10 @@ public class PaymentAttemptServiceTest {
 
     @Test
     void createPaymentAttempt_WhenOrderCannotStartPayment_ShouldPropagateRejectionWithoutSaving() {
+        mockCustomer(CustomerStatus.ACTIVE);
         var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
-        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, BigDecimal.ZERO));
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, BigDecimal.ZERO));
         doThrow(new InvalidOrderStateException("Order must contain items and have a positive total to start payment."))
                 .when(orderInternalApi).markAsPaymentInProgress(orderId);
 
@@ -542,6 +564,56 @@ public class PaymentAttemptServiceTest {
 
         assertEquals("Order must contain items and have a positive total to start payment.", result.getMessage());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    void createPaymentAttempt_WhenCustomerIsBlocked_ShouldRejectWithoutSavingOrLockingOrder() {
+        mockCustomer(CustomerStatus.BLOCKED);
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+
+        var result = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, request));
+
+        assertEquals("Blocked customers cannot start payments.", result.getMessage());
+        verify(orderInternalApi, never()).markAsPaymentInProgress(any(UUID.class));
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    void startProcessing_WhenCustomerIsBlocked_ShouldRejectWithoutChangingPayment() {
+        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        when(paymentAttemptRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+        when(orderInternalApi.getOrderById(orderId)).thenReturn(OrderResponse.builder()
+                .setId(orderId).customerId(customerId).build());
+        mockCustomer(CustomerStatus.BLOCKED);
+
+        var result = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.startProcessing(orderId, payment.getId()));
+
+        assertEquals("Blocked customers cannot start payments.", result.getMessage());
+        assertEquals(PaymentStatus.CREATED, payment.getStatus());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verify(orderInternalApi, never()).getOrderDataForPayment(any(UUID.class));
+    }
+
+    @Test
+    void createPaymentAttempt_WhenExistingKeyBelongsToSameOrder_ShouldNotRevalidateCustomer() {
+        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY)).thenReturn(Optional.of(payment));
+
+        var result = paymentAttemptService.createPaymentAttempt(orderId,
+                new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY));
+
+        assertEquals(payment.getId(), result.id());
+        verifyNoInteractions(customerInternalApi, orderInternalApi);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    private void mockCustomer(CustomerStatus status) {
+        when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
+                .id(customerId).name("Test Customer").email("customer@example.com").status(status).build());
     }
 
     private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(UUID orderId,

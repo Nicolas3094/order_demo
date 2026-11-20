@@ -420,6 +420,48 @@ class OrderControllerIntegrationTest extends PostgresContainer {
         });
     }
 
+    @Test
+    void shouldRejectOrderCreationForBlockedCustomerWithoutPersistingOrder() throws Exception {
+        UUID customerId = persistCustomer();
+        blockCustomer(customerId);
+
+        mockMvc.perform(post("/api/v1/orders").contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(createValidRequest(customerId))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Blocked customers cannot create or reuse orders."));
+
+        assertThat(orderRepository.findByCustomerIdAndStatusIn(customerId,
+                List.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_IN_PROGRESS))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = { "PENDING_PAYMENT", "PAYMENT_IN_PROGRESS" })
+    void shouldRejectReusingOpenOrderForBlockedCustomerWithoutChangingIt(OrderStatus state) throws Exception {
+        UUID customerId = persistCustomer();
+        UUID orderId = persistOrder(customerId, state);
+        Long version = orderRepository.findById(orderId).orElseThrow().getVersion();
+        blockCustomer(customerId);
+
+        mockMvc.perform(post("/api/v1/orders").contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(createValidRequest(customerId))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Blocked customers cannot create or reuse orders."));
+
+        var order = orderRepository.findByCustomerIdAndStatusIn(customerId,
+                List.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_IN_PROGRESS)).orElseThrow();
+        assertThat(order.getId()).isEqualTo(orderId);
+        assertThat(order.getStatus()).isEqualTo(state);
+        assertThat(order.getVersion()).isEqualTo(version);
+    }
+
+    private void blockCustomer(UUID customerId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            var customer = customerRepository.findById(customerId).orElseThrow();
+            customer.deactivate();
+            customerRepository.saveAndFlush(customer);
+        });
+    }
+
     private static CreateOrderRequest createValidRequest(UUID customerId) {
         return CreateOrderRequest.builder()
                 .customerId(customerId)

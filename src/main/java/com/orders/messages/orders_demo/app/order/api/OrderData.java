@@ -8,6 +8,7 @@ import java.util.UUID;
  */
 public record OrderData(
         UUID orderId,
+        UUID customerId,
         BigDecimal amountTotal) {
 
 }
