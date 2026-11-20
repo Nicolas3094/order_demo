@@ -105,7 +105,7 @@ public class CustomerOrderServiceTest {
     }
 
     @Test
-    public void shouldThrowOrderNotFoundExceptionWhenCustomerNotFound() {
+    public void shouldThrowOrderNotFoundExceptionWhenOrderNotFound() {
         UUID customerId = UUID.randomUUID();
         UUID orderId_1 = UUID.randomUUID();
         CustomerResponse customerResponse = CustomerResponse.builder()
@@ -114,7 +114,7 @@ public class CustomerOrderServiceTest {
                 .email(UUID.randomUUID() + "@email.com")
                 .build();
         when(customerInternalApi.getCustomer(customerId)).thenReturn(customerResponse);
-        when(orderRepository.findByIdAndCustomerId(orderId_1, customerId)).thenThrow(new OrderNotFoundException());
+        when(orderRepository.findByIdAndCustomerId(orderId_1, customerId)).thenReturn(Optional.empty());
 
         OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
                 () -> customerOrderService.getOrder(orderId_1, customerId));
