@@ -56,6 +56,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldCreatePaymentAttemptWithPersistedOrderAmount() {
         UUID orderId = persistOrder();
         var request = buildCreatePaymentRequest();
+
         var result = paymentService.createPaymentAttempt(orderId, request);
         paymentIds.add(result.id());
 
@@ -73,6 +74,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldReuseExistingPaymentForRepeatedIdempotencyKey() {
         UUID orderId = persistOrder();
         var request = buildCreatePaymentRequest();
+
         var first = paymentService.createPaymentAttempt(orderId, request);
         paymentIds.add(first.id());
 
@@ -87,6 +89,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
         UUID firstOrder = persistOrder();
         UUID otherOrder = persistOrder();
         var paymentRequest = buildCreatePaymentRequest();
+
         var paymentResponse = paymentService.createPaymentAttempt(firstOrder, paymentRequest);
         paymentIds.add(paymentResponse.id());
 
@@ -117,6 +120,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldGetPersistedPaymentById() {
         UUID orderId = persistOrder();
         UUID paymentId = persistPayment(orderId, PaymentStatus.CREATED);
+
         var result = paymentService.getPaymentAttempt(orderId, paymentId);
 
         assertThat(result.id()).isEqualTo(paymentId);
@@ -130,6 +134,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldRejectPaymentBelongingToAnotherOrder() {
         UUID paymentId = persistPayment(persistOrder(), PaymentStatus.CREATED);
         UUID otherOrder = persistOrder();
+
         assertThatThrownBy(() -> paymentService.getPaymentAttempt(otherOrder, paymentId))
                 .isInstanceOf(PaymentNotFoundException.class);
     }
@@ -138,6 +143,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldRejectOperationsForMissingPayment() {
         UUID orderId = persistOrder();
         UUID missingId = UUID.randomUUID();
+
         assertThatThrownBy(() -> paymentService.getPaymentAttempt(orderId, missingId))
                 .isInstanceOf(PaymentNotFoundException.class);
         assertThatThrownBy(() -> paymentService.startProcessing(orderId, missingId))
@@ -161,6 +167,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldRejectCreatingPaymentForNonPendingOrder(OrderStatus status) {
         UUID orderId = persistOrder();
         changeOrderStatus(orderId, status);
+
         assertThatThrownBy(() -> paymentService.createPaymentAttempt(orderId, buildCreatePaymentRequest()))
                 .isInstanceOf(InvalidOrderStateException.class);
         assertThat(paymentRepository.findByOrderId(orderId)).isEmpty();
@@ -170,6 +177,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldStartProcessingAndPersistPaymentStatus() {
         UUID orderId = persistOrder();
         UUID paymentId = persistPayment(orderId, PaymentStatus.CREATED);
+
         assertThat(paymentService.startProcessing(orderId, paymentId).status()).isEqualTo(PaymentStatus.PROCESSING);
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(PaymentStatus.PROCESSING);
     }
@@ -178,6 +186,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldMarkPaymentSucceededAndPersistOrderAsPaid() {
         UUID orderId = persistOrder();
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
+
         assertThat(paymentService.markAsSucceeded(orderId, paymentId, "ref-123").status())
                 .isEqualTo(PaymentStatus.SUCCEEDED);
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
@@ -189,6 +198,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldMarkPaymentFailedAndPersistFailureDetails() {
         UUID orderId = persistOrder();
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
+
         assertThat(paymentService.markAsFailed(orderId, paymentId, 402, "Declined").status())
                 .isEqualTo(PaymentStatus.FAILED);
         var persisted = readPayment(paymentId);
@@ -203,6 +213,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldCancelPaymentWithoutChangingOrderStatus(PaymentStatus status) {
         UUID orderId = persistOrder();
         UUID paymentId = persistPayment(orderId, status);
+
         assertThat(paymentService.markAsCancelled(orderId, paymentId).status()).isEqualTo(PaymentStatus.CANCELLED);
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(PaymentStatus.CANCELLED);
         assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
@@ -213,6 +224,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldRejectInvalidPaymentTransitionsWithoutChangingPersistedState(PaymentStatus status) {
         UUID orderId = persistOrder();
         UUID paymentId = persistPayment(orderId, status);
+
         assertThatThrownBy(() -> paymentService.startProcessing(orderId, paymentId))
                 .isInstanceOf(InvalidPaymentStateException.class);
         assertThatThrownBy(() -> paymentService.markAsSucceeded(orderId, paymentId, "ref"))
@@ -244,6 +256,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldRollBackPaymentCreationWhenCallerTransactionFails() {
         UUID orderId = persistOrder();
         var request = buildCreatePaymentRequest();
+
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
             var result = paymentService.createPaymentAttempt(orderId, request);
             paymentIds.add(result.id());
@@ -259,6 +272,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     void shouldRollBackPaymentAndOrderUpdatesWhenCallerTransactionFails() {
         UUID orderId = persistOrder();
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
+
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
             paymentService.markAsSucceeded(orderId, paymentId, "ref-123");
             entityManager.flush();
