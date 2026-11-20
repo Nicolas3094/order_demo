@@ -177,6 +177,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     @Test
     void shouldStartProcessingAndPersistPaymentStatus() {
         UUID orderId = persistOrder();
+        changeOrderStatus(orderId, OrderStatus.PAYMENT_IN_PROGRESS);
         UUID paymentId = persistPayment(orderId, PaymentStatus.CREATED);
 
         assertThat(paymentService.startProcessing(orderId, paymentId).status()).isEqualTo(PaymentStatus.PROCESSING);
@@ -186,6 +187,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     @Test
     void shouldMarkPaymentSucceededAndPersistOrderAsPaid() {
         UUID orderId = persistOrder();
+        changeOrderStatus(orderId, OrderStatus.PAYMENT_IN_PROGRESS);
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
 
         assertThat(paymentService.markAsSucceeded(orderId, paymentId, "ref-123").status())
@@ -198,6 +200,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     @Test
     void shouldMarkPaymentFailedAndPersistFailureDetails() {
         UUID orderId = persistOrder();
+        changeOrderStatus(orderId, OrderStatus.PAYMENT_IN_PROGRESS);
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
 
         assertThat(paymentService.markAsFailed(orderId, paymentId, 402, "Declined").status())
@@ -211,8 +214,9 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
 
     @ParameterizedTest
     @EnumSource(value = PaymentStatus.class, names = { "CREATED", "PROCESSING" })
-    void shouldCancelPaymentWithoutChangingOrderStatus(PaymentStatus status) {
+    void shouldCancelPaymentAndReturnOrderToPending(PaymentStatus status) {
         UUID orderId = persistOrder();
+        changeOrderStatus(orderId, OrderStatus.PAYMENT_IN_PROGRESS);
         UUID paymentId = persistPayment(orderId, status);
 
         assertThat(paymentService.markAsCancelled(orderId, paymentId).status()).isEqualTo(PaymentStatus.CANCELLED);
@@ -224,6 +228,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     @EnumSource(value = PaymentStatus.class, names = { "FAILED", "CANCELLED", "SUCCEEDED" })
     void shouldRejectInvalidPaymentTransitionsWithoutChangingPersistedState(PaymentStatus status) {
         UUID orderId = persistOrder();
+        changeOrderStatus(orderId, OrderStatus.PAYMENT_IN_PROGRESS);
         UUID paymentId = persistPayment(orderId, status);
 
         assertThatThrownBy(() -> paymentService.startProcessing(orderId, paymentId))
@@ -236,7 +241,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
                 .isInstanceOf(InvalidPaymentStateException.class);
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(status);
         assertThat(readPayment(paymentId).getProviderRef()).isNull();
-        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
     }
 
     @Test
@@ -277,6 +282,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     @Test
     void shouldRollBackPaymentAndOrderUpdatesWhenCallerTransactionFails() {
         UUID orderId = persistOrder();
+        changeOrderStatus(orderId, OrderStatus.PAYMENT_IN_PROGRESS);
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
 
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
@@ -291,7 +297,40 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
 
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(PaymentStatus.PROCESSING);
         assertThat(readPayment(paymentId).getProviderRef()).isNull();
-        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "PROCESSING" })
+    void shouldRollBackCancellationWhenOrderCannotReturnToPending(PaymentStatus initialStatus) {
+        UUID orderId = persistOrder();
+        UUID paymentId = persistPayment(orderId, initialStatus);
+        changeOrderStatus(orderId, OrderStatus.CANCELLED);
+
+        assertThatThrownBy(() -> paymentService.markAsCancelled(orderId, paymentId))
+                .isInstanceOf(InvalidOrderStateException.class);
+
+        assertThat(readPayment(paymentId).getStatus()).isEqualTo(initialStatus);
+        assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.CANCELLED);
+    }
+
+    @Test
+    void shouldRollBackPaymentAndOrderCancellationWhenCallerFails() {
+        UUID orderId = persistOrder();
+        changeOrderStatus(orderId, OrderStatus.PAYMENT_IN_PROGRESS);
+        UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            paymentService.markAsCancelled(orderId, paymentId);
+            entityManager.flush();
+            entityManager.clear();
+            assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            throw new IllegalStateException("Caller failed.");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("Caller failed.");
+
+        assertThat(readPayment(paymentId).getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
     }
 
     private CreatePaymentAttemptRequest buildCreatePaymentRequest() {
@@ -312,11 +351,15 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
         transactionTemplate.executeWithoutResult(status -> {
             OrderEntity order = orderRepository.findById(id).orElseThrow();
             switch (target) {
-                case PAID -> order.markAsPaid();
+                case PAID -> {
+                    order.paymentInProgress();
+                    order.markAsPaid();
+                }
                 case CANCELLED -> order.cancelOrder();
                 case EXPIRED -> order.expire();
                 case PAYMENT_IN_PROGRESS -> order.paymentInProgress();
                 case REFUNDED -> {
+                    order.paymentInProgress();
                     order.markAsPaid();
                     order.refund();
                 }

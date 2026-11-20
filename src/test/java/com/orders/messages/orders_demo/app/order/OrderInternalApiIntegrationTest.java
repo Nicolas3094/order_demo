@@ -59,7 +59,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldMarkAsPaidAndCommitWithoutCallerTransaction() {
-        UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
+        UUID id = persistOrder(OrderStatus.PAYMENT_IN_PROGRESS);
         Long initialVersion = readOrder(id).getVersion();
 
         orderInternalApi.markAsPaid(id);
@@ -72,7 +72,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
 
     @Test
     public void shouldRollBackPaymentWhenCallerTransactionFails() {
-        UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
+        UUID id = persistOrder(OrderStatus.PAYMENT_IN_PROGRESS);
         Long initialVersion = readOrder(id).getVersion();
 
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
@@ -82,7 +82,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
         })).isInstanceOf(IllegalStateException.class).hasMessage("Simulated failure");
 
         OrderEntity persisted = readOrder(id);
-        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
         assertThat(persisted.getVersion()).isEqualTo(initialVersion);
     }
 
@@ -129,7 +129,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
     }
 
     @ParameterizedTest
-    @MethodSource("rejectPaymentStates")
+    @MethodSource("rejectMarkAsPaidStates")
     public void shouldRejectPaymentAndPreserveTerminalState(
             OrderStatus state, Class<? extends RuntimeException> expectedException) {
         UUID id = persistOrder(state);
@@ -166,11 +166,20 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldAllowPaymentAndReturnPersistedAmountForPendingOrder() {
-        UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
+    public void shouldAllowProcessingForOrderWithPaymentInProgress() {
+        UUID id = persistOrder(OrderStatus.PAYMENT_IN_PROGRESS);
 
         assertThatCode(() -> orderInternalApi.validateCanReceivePayment(id)).doesNotThrowAnyException();
+
+        assertThat(readOrder(id).getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
+    @Test
+    public void shouldReturnPaymentDataForPendingOrder() {
+        UUID id = persistOrder(OrderStatus.PENDING_PAYMENT);
+
         var data = orderInternalApi.getOrderDataForPayment(id);
+
         assertThat(data.orderId()).isEqualTo(id);
         assertThat(data.amountTotal()).isEqualByComparingTo("1250.50");
         assertThat(readOrder(id).getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
@@ -181,8 +190,6 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
     public void shouldRejectPaymentQueriesForTerminalOrders(OrderStatus state) {
         UUID id = persistOrder(state);
 
-        assertThatThrownBy(() -> orderInternalApi.validateCanReceivePayment(id))
-                .isInstanceOf(InvalidOrderStateException.class);
         assertThatThrownBy(() -> orderInternalApi.getOrderDataForPayment(id))
                 .isInstanceOf(InvalidOrderStateException.class);
         assertThat(readOrder(id).getStatus()).isEqualTo(state);
@@ -196,10 +203,73 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
 
     }
 
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = "PAYMENT_IN_PROGRESS", mode = EnumSource.Mode.EXCLUDE)
+    public void shouldRejectProcessingUnlessOrderHasPaymentInProgress(OrderStatus state) {
+        UUID id = persistOrder(state);
+
+        assertThatThrownBy(() -> orderInternalApi.validateCanReceivePayment(id))
+                .isInstanceOf(InvalidOrderStateException.class);
+
+        assertThat(readOrder(id).getStatus()).isEqualTo(state);
+    }
+
+    private static Stream<Arguments> rejectMarkAsPaidStates() {
+        return Stream.of(
+                Arguments.of(OrderStatus.PENDING_PAYMENT, InvalidOrderStateException.class),
+                Arguments.of(OrderStatus.PAID, OrderAlreadyPaidException.class),
+                Arguments.of(OrderStatus.CANCELLED, OrderAlreadyCancelledException.class),
+                Arguments.of(OrderStatus.EXPIRED, OrderAlreadyExpiredException.class),
+                Arguments.of(OrderStatus.REFUNDED, InvalidOrderStateException.class));
+    }
+
+    @Test
+    public void shouldMarkAsPendingAndCommitWithoutCallerTransaction() {
+        UUID id = persistOrder(OrderStatus.PAYMENT_IN_PROGRESS);
+        Long initialVersion = readOrder(id).getVersion();
+
+        orderInternalApi.markAsPending(id);
+
+        OrderEntity persisted = readOrder(id);
+        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(persisted.getVersion()).isEqualTo(initialVersion + 1);
+    }
+
+    @Test
+    public void shouldRollBackPendingTransitionWhenCallerTransactionFails() {
+        UUID id = persistOrder(OrderStatus.PAYMENT_IN_PROGRESS);
+        Long initialVersion = readOrder(id).getVersion();
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            orderInternalApi.markAsPending(id);
+            entityManager.flush();
+            throw new IllegalStateException("Simulated failure");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("Simulated failure");
+
+        OrderEntity persisted = readOrder(id);
+        assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(persisted.getVersion()).isEqualTo(initialVersion);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = "PAYMENT_IN_PROGRESS", mode = EnumSource.Mode.EXCLUDE)
+    public void shouldRejectPendingTransitionFromOtherStates(OrderStatus state) {
+        UUID id = persistOrder(state);
+        Long initialVersion = readOrder(id).getVersion();
+
+        assertThatThrownBy(() -> orderInternalApi.markAsPending(id))
+                .isInstanceOf(InvalidOrderStateException.class);
+
+        OrderEntity persisted = readOrder(id);
+        assertThat(persisted.getStatus()).isEqualTo(state);
+        assertThat(persisted.getVersion()).isEqualTo(initialVersion);
+    }
+
     private static Stream<Consumer<OrderInternalApi>> operationsRequiringExistingOrder() {
         UUID missingId = UUID.randomUUID();
         return Stream.of(
                 api -> api.markAsPaymentInProgress(missingId),
+                api -> api.markAsPending(missingId),
                 api -> api.markAsPaid(missingId),
                 api -> api.getOrderById(missingId),
                 api -> api.validateOrderExists(missingId),

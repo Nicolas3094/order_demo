@@ -156,16 +156,20 @@ public class OrderEntity {
         changeStatusFromPending(OrderStatus.CANCELLED);
     }
 
-    public void markAsPaid() {
-        changeStatusFromPending(OrderStatus.PAID);
-    }
-
     public void expire() {
         changeStatusFromPending(OrderStatus.EXPIRED);
     }
 
     public void paymentInProgress() {
         changeStatusFromPending(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
+    public void markAsPaid() {
+        changeStatusFromPaymentInProgress(OrderStatus.PAID);
+    }
+
+    public void markAsPending() {
+        changeStatusFromPaymentInProgress(OrderStatus.PENDING_PAYMENT);
     }
 
     public void validateCanAcceptPayments() {
@@ -177,8 +181,7 @@ public class OrderEntity {
     public void refund() {
         switch (status) {
             case CANCELLED -> throw new OrderAlreadyCancelledException();
-            case PENDING_PAYMENT -> throw new InvalidOrderStateException(
-                    "Only paid orders can be refunded.");
+            case PENDING_PAYMENT -> throw new InvalidOrderStateException("Only paid orders can be refunded.");
             case EXPIRED -> throw new OrderAlreadyExpiredException();
             case PAID -> status = OrderStatus.REFUNDED;
             case PAYMENT_IN_PROGRESS -> throw new InvalidOrderStateException("Order is under a payment process.");
@@ -188,8 +191,8 @@ public class OrderEntity {
 
     public boolean validateCurrency(Currency currency) {
         if (!this.currency.equals(currency)) {
-            throw new InvalidOrderStateException("Product currency " + currency
-                    + " does not match order currency " + this.currency + ".");
+            throw new InvalidOrderStateException(
+                    "Product currency " + currency + " does not match order currency " + this.currency + ".");
         }
         return true;
     }
@@ -201,6 +204,17 @@ public class OrderEntity {
             case EXPIRED -> throw new OrderAlreadyExpiredException();
             case PAID -> throw new OrderAlreadyPaidException();
             case PAYMENT_IN_PROGRESS -> throw new InvalidOrderStateException("Order is under a payment process.");
+            default -> throw new InvalidOrderStateException("Unknown order state");
+        }
+    }
+
+    private void changeStatusFromPaymentInProgress(OrderStatus newStatus) {
+        switch (status) {
+            case CANCELLED -> throw new OrderAlreadyCancelledException();
+            case PENDING_PAYMENT -> throw new InvalidOrderStateException("Order is already in pending payment.");
+            case EXPIRED -> throw new OrderAlreadyExpiredException();
+            case PAID -> throw new OrderAlreadyPaidException();
+            case PAYMENT_IN_PROGRESS -> status = newStatus;
             default -> throw new InvalidOrderStateException("Unknown order state");
         }
     }

@@ -298,7 +298,7 @@ public class OrderServiceTest {
 
     @Test
     public void refundOrder_WhenOrderExists_ShouldRefundOrder() {
-        fakeOrder.markAsPaid();
+        fakeOrder = buildOrder(OrderStatus.PAID);
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -312,9 +312,9 @@ public class OrderServiceTest {
     public void refundOrder_WhenOrderExists_ShouldIncreaseStockForEachOrderItem() {
         OrderItemEntity item1 = createOrderItem("SKU1", 2L);
         OrderItemEntity item2 = createOrderItem("SKU2", 1L);
+        fakeOrder = buildOrder(OrderStatus.PAID);
         fakeOrder.addItem(item1);
         fakeOrder.addItem(item2);
-        fakeOrder.markAsPaid();
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         doNothing().when(productInternalApi).increaceProductStock("SKU1", 2L);
         doNothing().when(productInternalApi).increaceProductStock("SKU2", 1L);
@@ -331,8 +331,8 @@ public class OrderServiceTest {
     @Test
     public void refundOrder_WhenProductNotFound_ShouldThrowProductNotFoundException() {
         OrderItemEntity item1 = createOrderItem("SKU1", 2L);
+        fakeOrder = buildOrder(OrderStatus.PAID);
         fakeOrder.addItem(item1);
-        fakeOrder.markAsPaid();
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
         doThrow(new ProductNotFoundException("SKU1"))
                 .when(productInternalApi).increaceProductStock("SKU1", 2L);
@@ -430,5 +430,13 @@ public class OrderServiceTest {
                         OrderStatus.PAID,
                         OrderAlreadyPaidException.class,
                         "Paid orders cannot be modified."));
+    }
+
+    private static OrderEntity buildOrder(OrderStatus status) {
+        return OrderEntity.builder()
+                .id(UUID.randomUUID())
+                .customerId(UUID.randomUUID())
+                .status(status)
+                .build();
     }
 }

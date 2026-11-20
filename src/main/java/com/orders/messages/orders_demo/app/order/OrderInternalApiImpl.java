@@ -11,6 +11,8 @@ import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderMapper;
 import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
+import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 
 @Service
@@ -49,10 +51,22 @@ public class OrderInternalApiImpl implements OrderInternalApi {
     }
 
     @Override
+    @Transactional
+    public void markAsPending(UUID orderId) {
+        OrderEntity order = getOrder(orderId);
+
+        order.markAsPending();
+
+        orderRepository.save(order);
+    }
+
+    @Override
     public void validateCanReceivePayment(UUID id) {
         OrderEntity order = getOrder(id);
 
-        order.validateCanAcceptPayments();
+        if (!OrderStatus.PAYMENT_IN_PROGRESS.equals(order.getStatus())) {
+            throw new InvalidOrderStateException("Only pending orders can be modified.");
+        }
     }
 
     @Override

@@ -255,6 +255,7 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
             throws Exception {
         final String sku = "SKU-IDEMPOTENCY";
         final String idempotencyKey = UUID.randomUUID().toString();
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.NONE, idempotencyKey);
 
         UUID productId = postProduct(sku, "123.00", 5L);
         UUID firstOrderId = postOrder(postCustomer());
@@ -266,7 +267,6 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
         var originalPayments = transactionTemplate.execute(status -> paymentAttemptRepository.findAll().stream()
                 .map(payment -> List.of(payment.getId(), objectMapper.valueToTree(payment)))
                 .toList());
-        var request = new CreatePaymentAttemptRequest(PaymentProvider.NONE, idempotencyKey);
         mockMvc.perform(post("/api/v1/orders/{orderId}/payments", secondOrderId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
@@ -289,15 +289,16 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
             assertThat(paymentAttemptRepository.findByOrderId(secondOrderId))
                     .extracting(payment -> payment.getId()).containsExactly(secondPaymentId);
             assertThat(orderRepository.findById(firstOrderId).orElseThrow().getStatus())
-                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
+                    .isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
             assertThat(orderRepository.findById(secondOrderId).orElseThrow().getStatus())
-                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
+                    .isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
             assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(2L);
         });
     }
 
     @Test
-    void shouldRejectItemChangesAfterSuccessfulPaymentThroughHttpWithoutChangingItemsTotalStockOrPayment() throws Exception {
+    void shouldRejectItemChangesAfterSuccessfulPaymentThroughHttpWithoutChangingItemsTotalStockOrPayment()
+            throws Exception {
         final String sku = "SKU-PAID-ORDER";
         final String idempotencyKey = UUID.randomUUID().toString();
 

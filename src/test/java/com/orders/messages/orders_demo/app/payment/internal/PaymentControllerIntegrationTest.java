@@ -112,6 +112,11 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
     @Test
     void shouldStartProcessingThroughHttpAndReturn200WithPersistedStatus() throws Exception {
         UUID orderId = persistOrder();
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            order.paymentInProgress();
+            orderRepository.saveAndFlush(order);
+        });
         UUID paymentId = persistPayment(orderId, PaymentStatus.CREATED);
 
         mockMvc.perform(patch(BASE_PATH + "/{paymentId}/processing", orderId, paymentId))
@@ -123,13 +128,18 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
         transactionTemplate.executeWithoutResult(status -> {
             PaymentAttemptEntity payment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
-            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
         });
     }
 
     @Test
     void shouldMarkPaymentSucceededThroughHttpAndPersistPaymentAndOrderStatuses() throws Exception {
         UUID orderId = persistOrder();
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            order.paymentInProgress();
+            orderRepository.saveAndFlush(order);
+        });
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
 
         mockMvc.perform(patch(BASE_PATH + "/{paymentId}/succeeded", orderId, paymentId)
@@ -152,6 +162,11 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
     @Test
     void shouldMarkPaymentFailedThroughHttpAndPersistFailureDetails() throws Exception {
         UUID orderId = persistOrder();
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            order.paymentInProgress();
+            orderRepository.saveAndFlush(order);
+        });
         UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
 
         mockMvc.perform(patch(BASE_PATH + "/{paymentId}/failed", orderId, paymentId)
@@ -176,6 +191,11 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
     @Test
     void shouldCancelPaymentThroughHttpAndPersistCancelledStatus() throws Exception {
         UUID orderId = persistOrder();
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            order.paymentInProgress();
+            orderRepository.saveAndFlush(order);
+        });
         UUID paymentId = persistPayment(orderId, PaymentStatus.CREATED);
 
         mockMvc.perform(patch(BASE_PATH + "/{paymentId}/cancel", orderId, paymentId))
@@ -222,6 +242,11 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
     @Test
     void shouldReturn409WithErrorJsonForInvalidPaymentTransition() throws Exception {
         UUID orderId = persistOrder();
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            order.paymentInProgress();
+            orderRepository.saveAndFlush(order);
+        });
         UUID paymentId = persistPayment(orderId, PaymentStatus.CANCELLED);
 
         mockMvc.perform(patch(BASE_PATH + "/{paymentId}/processing", orderId, paymentId))

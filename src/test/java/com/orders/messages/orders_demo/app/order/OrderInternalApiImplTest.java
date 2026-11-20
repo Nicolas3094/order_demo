@@ -80,7 +80,7 @@ public class OrderInternalApiImplTest {
 
     @Test
     public void markAsPaid_WhenOrderIsFound_ShouldMarkOrderAsPaidAndSave() {
-        OrderEntity order = createOrder();
+        OrderEntity order = createOrder(OrderStatus.PAYMENT_IN_PROGRESS);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
 
         orderInternalApi.markAsPaid(ORDER_ID);
@@ -128,6 +128,28 @@ public class OrderInternalApiImplTest {
         assertEquals(ORDER_NOT_FOUND_MESSAGE, result.getMessage());
         verify(orderRepository, never()).save(any(OrderEntity.class));
     }
+    @Test
+    public void markAsPending_WhenOrderIsInProgress_ShouldMarkOrderPendingAndSave() {
+        OrderEntity order = createOrderWithStatus(ORDER_ID, OrderStatus.PAYMENT_IN_PROGRESS);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+
+        orderInternalApi.markAsPending(ORDER_ID);
+
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        verify(orderRepository).save(order);
+    }
+
+    @Test
+    public void markAsPending_WhenOrderIsNotFound_ShouldThrowOrderNotFoundException() {
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
+
+        OrderNotFoundException result = assertThrows(OrderNotFoundException.class,
+                () -> orderInternalApi.markAsPending(ORDER_ID));
+
+        assertEquals(ORDER_NOT_FOUND_MESSAGE, result.getMessage());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+
     /*
      * 
      * validateCanReceivePayment
@@ -135,8 +157,8 @@ public class OrderInternalApiImplTest {
      */
 
     @Test
-    public void validateCanReceivePayment_WhenOrderIsPendingPayment_ShouldNotThrowException() {
-        OrderEntity order = createOrder();
+    public void validateCanReceivePayment_WhenOrderHasPaymentInProgress_ShouldNotThrowException() {
+        OrderEntity order = createOrder(OrderStatus.PAYMENT_IN_PROGRESS);
         when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
 
         orderInternalApi.validateCanReceivePayment(ORDER_ID);
@@ -145,7 +167,7 @@ public class OrderInternalApiImplTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = OrderStatus.class, mode = Mode.EXCLUDE, names = { "PENDING_PAYMENT" })
+    @EnumSource(value = OrderStatus.class, mode = Mode.EXCLUDE, names = { "PAYMENT_IN_PROGRESS" })
     public void validateCanReceivePayment_WhenOrderCannotAcceptPayments_ShouldThrowInvalidOrderStateException(
             OrderStatus status) {
         OrderEntity order = createOrderWithStatus(ORDER_ID, status);
@@ -232,6 +254,22 @@ public class OrderInternalApiImplTest {
 
         assertEquals(ORDER_NOT_FOUND_MESSAGE, result.getMessage());
         verify(orderRepository).existsById(ORDER_ID);
+    }
+
+    private static OrderEntity createOrder(OrderStatus status) {
+        return OrderEntity.builder()
+                .id(ORDER_ID)
+                .status(status)
+                .customerId(UUID.randomUUID())
+                .currency(Currency.MXN)
+                .addItem(
+                        OrderItemEntity.builder()
+                                .sku("SKU")
+                                .description("Item")
+                                .unitPrice(new BigDecimal("250.00"))
+                                .quantity(1L)
+                                .build())
+                .build();
     }
 
     private static OrderEntity createOrder() {

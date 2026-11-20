@@ -453,6 +453,7 @@ public class PaymentAttemptServiceTest {
         verify(paymentAttemptRepository).save(paymentCaptor.capture());
         assertEquals(paymentCaptor.getValue().getId(), result.id());
         assertEquals(PaymentStatus.CANCELLED, result.status());
+        verify(orderInternalApi).markAsPending(orderId);
     }
 
     @Test

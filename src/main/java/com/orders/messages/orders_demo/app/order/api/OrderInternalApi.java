@@ -43,6 +43,8 @@ public interface OrderInternalApi {
      */
     void markAsPaid(UUID id);
 
+    void markAsPending(UUID orderId);
+
     /**
      * Marks the order with the specified identifier as payment in progress.
      *

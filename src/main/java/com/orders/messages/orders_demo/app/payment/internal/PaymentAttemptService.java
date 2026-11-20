@@ -88,8 +88,7 @@ public class PaymentAttemptService {
                 return PaymentAttemptMapper.toResponse(paymentOpt.get());
             }
 
-            throw new InvalidPaymentStateException(
-                    "Requested order ID is not equal to payment's order.");
+            throw new InvalidPaymentStateException("Requested order ID is not equal to payment's order.");
         }
 
         OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
@@ -161,7 +160,12 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
-        return updatePaymentAttemptState(orderId, paymentId, payment -> payment.markAsFailed(code, errorMessage));
+        return updatePaymentAttemptState(orderId, paymentId, payment -> {
+
+            payment.markAsFailed(code, errorMessage);
+
+            orderInternalApi.markAsPending(orderId);
+        });
     }
 
     /**
@@ -177,7 +181,11 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse markAsCancelled(UUID orderId, UUID paymentId) {
-        return updatePaymentAttemptState(orderId, paymentId, PaymentAttemptEntity::cancel);
+        return updatePaymentAttemptState(orderId, paymentId, payment -> {
+            payment.cancel();
+
+            orderInternalApi.markAsPending(orderId);
+        });
     }
 
     /**

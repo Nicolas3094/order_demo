@@ -42,7 +42,7 @@ public class OrderEntityTest {
 
     @ParameterizedTest
     @MethodSource("orderTransitionsFromPending")
-    public void stateChange_WhenOrderIsPending_ShouldChangeToExpectedStatus(
+    public void onOrderStatusChange_WhenComingFromOrderIsPending_ShouldChangeToExpectedStatus(
             Consumer<OrderEntity> operation, OrderStatus expectedStatus) {
         operation.accept(fakeOrder);
 
@@ -50,21 +50,53 @@ public class OrderEntityTest {
     }
 
     @ParameterizedTest
-    @MethodSource("invalidStateTransitions")
-    public void stateChange_WhenCurrentStateDoesNotAllowOperation_ShouldRejectAndPreserveStatus(
-            Consumer<OrderEntity> mainOperation, Consumer<OrderEntity> prevOperation, String expectedMessage) {
-        prevOperation.accept(fakeOrder);
-        var initialStatus = fakeOrder.getStatus();
+    @MethodSource("orderTransitionsFromPaymentInProgress")
+    public void onOrderStatusChange_WhenComingFromPaymentInProgress_ShouldChangeToExpectedStatus(
+            Consumer<OrderEntity> operation, OrderStatus expectedStatus) {
+        fakeOrder.paymentInProgress();
+
+        operation.accept(fakeOrder);
+
+        assertEquals(expectedStatus, fakeOrder.getStatus());
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidStateTransitionsFromPending")
+    public void onOrderStatusChange_WhenComingFromPending_ShouldRejectAndPreserveStatus(
+            Consumer<OrderEntity> mainOperation, OrderStatus prevStatus, String expectedMessage) {
+        fakeOrder = OrderEntity.builder()
+                .customerId(UUID.randomUUID())
+                .status(prevStatus)
+                .currency(Currency.MXN)
+                .build();
 
         Exception result = assertThrows(InvalidOrderStateException.class, () -> mainOperation.accept(fakeOrder));
 
         assertEquals(expectedMessage, result.getMessage());
-        assertEquals(initialStatus, fakeOrder.getStatus());
+        assertEquals(prevStatus, fakeOrder.getStatus());
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidStateTransitionsFromPaymentInProgress")
+    public void onOrderStatusChange_WhenComingFromPaymentInProgress_ShouldRejectAndPreserveStatus(
+            Consumer<OrderEntity> mainOperation, OrderStatus prevStatus, String expectedMessage) {
+        fakeOrder = OrderEntity.builder()
+                .customerId(UUID.randomUUID())
+                .status(prevStatus)
+                .build();
+
+        Exception result = assertThrows(InvalidOrderStateException.class, () -> mainOperation.accept(fakeOrder));
+
+        assertEquals(expectedMessage, result.getMessage());
+        assertEquals(prevStatus, fakeOrder.getStatus());
     }
 
     @Test
     public void refund_WhenOrderHasPaidState_ShouldChangeStatusToRefunded() {
-        fakeOrder.markAsPaid();
+        fakeOrder = OrderEntity.builder()
+                .customerId(UUID.randomUUID())
+                .status(OrderStatus.PAID)
+                .build();
 
         fakeOrder.refund();
 
@@ -232,34 +264,47 @@ public class OrderEntityTest {
         assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
     }
 
-    private static Stream<Arguments> orderTransitionsFromPending() {
+    private static Stream<Arguments> orderTransitionsFromPaymentInProgress() {
         return Stream.of(
-                Arguments.of(
-                        (Consumer<OrderEntity>) OrderEntity::cancelOrder,
-                        OrderStatus.CANCELLED),
-                Arguments.of(
-                        (Consumer<OrderEntity>) OrderEntity::markAsPaid,
-                        OrderStatus.PAID),
-                Arguments.of(
-                        (Consumer<OrderEntity>) OrderEntity::expire,
-                        OrderStatus.EXPIRED),
-                Arguments.of(
-                        (Consumer<OrderEntity>) OrderEntity::paymentInProgress,
-                        OrderStatus.PAYMENT_IN_PROGRESS));
+                Arguments.of((Consumer<OrderEntity>) OrderEntity::markAsPaid, OrderStatus.PAID),
+                Arguments.of((Consumer<OrderEntity>) OrderEntity::markAsPending, OrderStatus.PENDING_PAYMENT));
     }
 
-    private static Stream<Arguments> invalidStateTransitions() {
-        List<Map.Entry<Consumer<OrderEntity>, String>> cases = List.of(
-                Map.entry(OrderEntity::cancelOrder, "Order is already cancelled."),
-                Map.entry(OrderEntity::markAsPaid, "Paid orders cannot be modified."),
-                Map.entry(OrderEntity::expire, "Expired orders cannot be modified."),
-                Map.entry(OrderEntity::paymentInProgress, "Order is under a payment process."));
-
-        List<Consumer<OrderEntity>> operationsToReject = List.of(OrderEntity::expire, OrderEntity::markAsPaid,
-                OrderEntity::cancelOrder, OrderEntity::paymentInProgress);
-
+    private static Stream<Arguments> invalidStateTransitionsFromPaymentInProgress() {
+        List<Map.Entry<OrderStatus, String>> originStatusAndErrorMessage = List.of(
+                Map.entry(OrderStatus.CANCELLED, "Order is already cancelled."),
+                Map.entry(OrderStatus.EXPIRED, "Expired orders cannot be modified."),
+                Map.entry(OrderStatus.PAYMENT_IN_PROGRESS, "Order is under a payment process."));
+        List<Consumer<OrderEntity>> operationsToReject = List.of(
+                OrderEntity::expire,
+                OrderEntity::cancelOrder,
+                OrderEntity::paymentInProgress);
         return operationsToReject.stream()
-                .flatMap(mainOperation -> cases.stream()
+                .flatMap(mainOperation -> originStatusAndErrorMessage.stream()
+                        .map(mapEntity -> Arguments.of(
+                                mainOperation,
+                                mapEntity.getKey(),
+                                mapEntity.getValue())));
+    }
+
+    private static Stream<Arguments> orderTransitionsFromPending() {
+        return Stream.of(
+                Arguments.of((Consumer<OrderEntity>) OrderEntity::cancelOrder, OrderStatus.CANCELLED),
+                Arguments.of((Consumer<OrderEntity>) OrderEntity::expire, OrderStatus.EXPIRED),
+                Arguments.of((Consumer<OrderEntity>) OrderEntity::paymentInProgress, OrderStatus.PAYMENT_IN_PROGRESS));
+    }
+
+    private static Stream<Arguments> invalidStateTransitionsFromPending() {
+        List<Map.Entry<OrderStatus, String>> originStatusAndErrorMessage = List.of(
+                Map.entry(OrderStatus.CANCELLED, "Order is already cancelled."),
+                Map.entry(OrderStatus.EXPIRED, "Expired orders cannot be modified."),
+                Map.entry(OrderStatus.PAYMENT_IN_PROGRESS, "Order is under a payment process."));
+        List<Consumer<OrderEntity>> operationsToReject = List.of(
+                OrderEntity::expire,
+                OrderEntity::cancelOrder,
+                OrderEntity::paymentInProgress);
+        return operationsToReject.stream()
+                .flatMap(mainOperation -> originStatusAndErrorMessage.stream()
                         .map(mapEntity -> Arguments.of(
                                 mainOperation,
                                 mapEntity.getKey(),
