@@ -10,6 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerStateException;
@@ -46,6 +47,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleCustomerNotFound(
             CustomerNotFoundException e, HttpServletRequest request) {
         return handleNotFound(e, request);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleMethodArgumentTypeMismatchException(
+            MethodArgumentTypeMismatchException e, HttpServletRequest request) {
+        return handleBadRequest(e, request);
     }
 
     /**
@@ -222,6 +229,26 @@ public class GlobalExceptionHandler {
                 request.getRequestURI());
 
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(response);
+    }
+
+    /**
+     * Handles generic requests for non-existing objects.
+     * 
+     * @param e       the runtime generic exception.
+     * @param request the current HTTP request.
+     * @return a {@code 400 Bad request} response containing the standardized error
+     *         payload.
+     */
+    private static ResponseEntity<ErrorResponse> handleBadRequest(RuntimeException e, HttpServletRequest request) {
+        ErrorResponse response = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                e.getMessage(),
+                request.getRequestURI());
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(response);
     }
 
