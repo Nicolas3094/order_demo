@@ -21,12 +21,13 @@ public class CustomerOrderService {
     }
 
     public Page<OrderResponse> getCustomerOrders(UUID customerId, OrderStatus status, Pageable pageable) {
+        UUID persistedCustomerId = customerInternalApi.getCustomer(customerId).id();
         Page<OrderEntity> orders;
 
         if (status == null) {
-            orders = orderRepository.findByCustomerId(customerId, pageable);
+            orders = orderRepository.findByCustomerId(persistedCustomerId, pageable);
         } else {
-            orders = orderRepository.findByCustomerIdAndStatus(customerId, status, pageable);
+            orders = orderRepository.findByCustomerIdAndStatus(persistedCustomerId, status, pageable);
         }
 
         return orders.map(OrderMapper::toResponse);

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -43,6 +44,11 @@ public class CustomerOrderServiceTest {
     @EnumSource(value = OrderStatus.class)
     public void shouldGetCustomerOrdersPageWithStatus(OrderStatus orderStatus) {
         UUID customerId = UUID.randomUUID();
+        when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
+                .id(customerId)
+                .name("Test Customer")
+                .email("customer@example.com")
+                .build());
         UUID orderId_1 = UUID.randomUUID();
         UUID orderId_2 = UUID.randomUUID();
         Page<OrderEntity> orderPage = new PageImpl<>(
@@ -59,6 +65,11 @@ public class CustomerOrderServiceTest {
     @Test
     public void shouldGetCustomerAllOrdersPageWithNullStatus() {
         UUID customerId = UUID.randomUUID();
+        when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
+                .id(customerId)
+                .name("Test Customer")
+                .email("customer@example.com")
+                .build());
         UUID orderId_1 = UUID.randomUUID();
         UUID orderId_2 = UUID.randomUUID();
         Page<OrderEntity> orderPage = new PageImpl<>(
@@ -70,6 +81,20 @@ public class CustomerOrderServiceTest {
 
         assertThat(result).hasSize(2);
         assertThat(result).extracting(OrderResponse::id).containsExactlyInAnyOrder(orderId_1, orderId_2);
+    }
+
+    @ParameterizedTest
+    @EnumSource(OrderStatus.class)
+    @NullSource
+    public void shouldThrowCustomerNotFoundExceptionWhenListingOrdersForMissingCustomer(OrderStatus status) {
+        UUID customerId = UUID.randomUUID();
+        when(customerInternalApi.getCustomer(customerId)).thenThrow(new CustomerNotFoundException());
+
+        CustomerNotFoundException result = assertThrows(CustomerNotFoundException.class,
+                () -> customerOrderService.getCustomerOrders(customerId, status, DEFAULT_PAGEABLE));
+
+        assertThat(result.getMessage()).isEqualTo("Customer could not be found.");
+        verifyNoInteractions(orderRepository);
     }
 
     @Test
