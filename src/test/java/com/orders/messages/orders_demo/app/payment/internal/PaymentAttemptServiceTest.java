@@ -368,7 +368,9 @@ public class PaymentAttemptServiceTest {
         InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
                 () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
 
-        assertEquals("Only processing payments can be marked as succeeded.", result.getMessage());
+        assertEquals(paymentStatus == PaymentStatus.SUCCEEDED
+                ? "Successful payment has a different provider reference."
+                : "Only processing payments can be marked as succeeded.", result.getMessage());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
         verify(orderInternalApi, never()).markAsPaid(any(UUID.class));
     }
@@ -429,7 +431,9 @@ public class PaymentAttemptServiceTest {
         InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
                 () -> paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Server error"));
 
-        assertEquals("Only processing payments can fail.", result.getMessage());
+        assertEquals(paymentStatus == PaymentStatus.FAILED
+                ? "Failed payment has different failure details."
+                : "Only processing payments can fail.", result.getMessage());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
     }
 
@@ -496,6 +500,34 @@ public class PaymentAttemptServiceTest {
 
     private void mockPaymentRepositorySave() {
         when(paymentAttemptRepository.save(any(PaymentAttemptEntity.class))).thenAnswer(i -> i.getArgument(0));
+    }
+
+    @Test
+    void markAsSucceeded_WhenSameNotificationIsRepeated_ShouldReturnWithoutSavingOrUpdatingOrder() {
+        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        payment.markAsSucceeded("ref-repeat");
+        when(paymentAttemptRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+
+        var result = paymentAttemptService.markAsSucceeded(orderId, payment.getId(), "ref-repeat");
+
+        assertEquals(payment.getId(), result.id());
+        assertEquals(PaymentStatus.SUCCEEDED, result.status());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi);
+    }
+
+    @Test
+    void markAsFailed_WhenSameNotificationIsRepeated_ShouldReturnWithoutSavingOrUpdatingOrder() {
+        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        payment.markAsFailed(402, "Declined");
+        when(paymentAttemptRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+
+        var result = paymentAttemptService.markAsFailed(orderId, payment.getId(), 402, "Declined");
+
+        assertEquals(payment.getId(), result.id());
+        assertEquals(PaymentStatus.FAILED, result.status());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi);
     }
 
     private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(UUID orderId,

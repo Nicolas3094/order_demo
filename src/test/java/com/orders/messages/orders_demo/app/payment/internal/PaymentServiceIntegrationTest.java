@@ -23,6 +23,9 @@ import com.orders.messages.orders_demo.app.payment.api.*;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.*;
 
 class PaymentServiceIntegrationTest extends PostgresContainer {
+
+    @Autowired
+    private OrderItemService orderItemService;
     @Autowired
     private PaymentAttemptService paymentService;
     @Autowired
@@ -241,7 +244,8 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
                 .isInstanceOf(InvalidPaymentStateException.class);
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(status);
         assertThat(readPayment(paymentId).getProviderRef()).isNull();
-        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
     }
 
     @Test
@@ -297,7 +301,8 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
 
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(PaymentStatus.PROCESSING);
         assertThat(readPayment(paymentId).getProviderRef()).isNull();
-        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
     }
 
     @ParameterizedTest
@@ -324,13 +329,102 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
             paymentService.markAsCancelled(orderId, paymentId);
             entityManager.flush();
             entityManager.clear();
-            assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
-            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                    .isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
             throw new IllegalStateException("Caller failed.");
         })).isInstanceOf(IllegalStateException.class).hasMessage("Caller failed.");
 
         assertThat(readPayment(paymentId).getStatus()).isEqualTo(PaymentStatus.PROCESSING);
         assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
+    @Test
+    void shouldAcceptRepeatedSuccessNotificationWithoutChangingPaymentOrOrderAgain() {
+        UUID orderId = persistOrder();
+        var created = paymentService.createPaymentAttempt(orderId, buildCreatePaymentRequest());
+        paymentIds.add(created.id());
+        paymentService.startProcessing(orderId, created.id());
+        var first = paymentService.markAsSucceeded(orderId, created.id(), "ref-repeat");
+        var version = readOrder(orderId).getVersion();
+
+        var repeated = paymentService.markAsSucceeded(orderId, created.id(), "ref-repeat");
+
+        assertThat(repeated.id()).isEqualTo(first.id());
+        assertThat(repeated.status()).isEqualTo(first.status());
+        assertThat(repeated.amount()).isEqualByComparingTo(first.amount());
+        assertThat(readPayment(created.id()).getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(readOrder(orderId).getVersion()).isEqualTo(version);
+        assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+    }
+
+    @Test
+    void shouldAcceptRepeatedFailureNotificationWithoutChangingPaymentOrOrderAgain() {
+        UUID orderId = persistOrder();
+        var created = paymentService.createPaymentAttempt(orderId, buildCreatePaymentRequest());
+        paymentIds.add(created.id());
+        paymentService.startProcessing(orderId, created.id());
+        var first = paymentService.markAsFailed(orderId, created.id(), 402, "Declined");
+        var version = readOrder(orderId).getVersion();
+
+        var repeated = paymentService.markAsFailed(orderId, created.id(), 402, "Declined");
+
+        assertThat(repeated.id()).isEqualTo(first.id());
+        assertThat(repeated.status()).isEqualTo(first.status());
+        assertThat(repeated.amount()).isEqualByComparingTo(first.amount());
+        assertThat(readPayment(created.id()).getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(readOrder(orderId).getVersion()).isEqualTo(version);
+        assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+    }
+
+    @Test
+    void shouldRejectStaleItemEditWhenPaymentStartsInAnotherTransaction() throws Exception {
+        UUID orderId = persistOrder();
+        var editReady = new java.util.concurrent.CountDownLatch(1);
+        var paymentCreated = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+        try {
+            var edit = executor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                var order = orderRepository.findById(orderId).orElseThrow();
+                UUID itemId = order.getItems().get(0).getId();
+                editReady.countDown();
+                try {
+                    if (!paymentCreated.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Payment creation timed out");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+                orderItemService.changeUnitPrice(orderId, itemId, new BigDecimal("200.00"));
+                entityManager.flush();
+            }));
+            assertThat(editReady.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var payment = paymentService.createPaymentAttempt(orderId, buildCreatePaymentRequest());
+            paymentIds.add(payment.id());
+            paymentCreated.countDown();
+
+            assertThatThrownBy(() -> edit.get(10, java.util.concurrent.TimeUnit.SECONDS))
+                    .isInstanceOf(java.util.concurrent.ExecutionException.class)
+                    .hasCauseInstanceOf(jakarta.persistence.OptimisticLockException.class);
+
+            transactionTemplate.executeWithoutResult(status -> {
+                var order = orderRepository.findById(orderId).orElseThrow();
+                var persistedPayment = paymentRepository.findById(payment.id()).orElseThrow();
+                assertThat(order.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+                assertThat(order.getAmountTotal()).isEqualByComparingTo("247.00");
+                assertThat(order.getItems().get(0).getUnitPrice()).isEqualByComparingTo("123.50");
+                assertThat(persistedPayment.getAmount()).isEqualByComparingTo(order.getAmountTotal());
+            });
+        } finally {
+            paymentCreated.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
+        }
     }
 
     private CreatePaymentAttemptRequest buildCreatePaymentRequest() {

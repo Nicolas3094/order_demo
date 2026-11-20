@@ -2,6 +2,7 @@ package com.orders.messages.orders_demo.app.payment.internal;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -138,11 +139,23 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
-        return updatePaymentAttemptState(orderId, paymentId, payment -> {
-            payment.markAsSucceeded(providerRef);
 
-            orderInternalApi.markAsPaid(orderId);
-        });
+        PaymentAttemptEntity payment = findPaymentAttempt(orderId, paymentId);
+
+        if (PaymentStatus.SUCCEEDED.equals(payment.getStatus())) {
+
+            if (!providerRef.equals(payment.getProviderRef())) {
+                throw new InvalidPaymentStateException("Successful payment has a different provider reference.");
+            }
+
+            return PaymentAttemptMapper.toResponse(payment);
+        }
+
+        payment.markAsSucceeded(providerRef);
+
+        orderInternalApi.markAsPaid(orderId);
+
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
     }
 
     /**
@@ -160,12 +173,22 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
-        return updatePaymentAttemptState(orderId, paymentId, payment -> {
+        PaymentAttemptEntity payment = findPaymentAttempt(orderId, paymentId);
 
-            payment.markAsFailed(code, errorMessage);
+        if (PaymentStatus.FAILED.equals(payment.getStatus())) {
 
-            orderInternalApi.markAsPending(orderId);
-        });
+            if (!code.equals(payment.getFailureCode()) || !errorMessage.equals(payment.getFailureMessage())) {
+                throw new InvalidPaymentStateException("Failed payment has different failure details.");
+            }
+
+            return PaymentAttemptMapper.toResponse(payment);
+        }
+
+        payment.markAsFailed(code, errorMessage);
+
+        orderInternalApi.markAsPending(orderId);
+
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
     }
 
     /**
