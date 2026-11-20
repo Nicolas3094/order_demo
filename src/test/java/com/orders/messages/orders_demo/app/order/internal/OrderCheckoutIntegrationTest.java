@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -296,7 +297,58 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldRejectItemChangesAfterSuccessfulPaymentThroughHttpWithoutChangingItemsTotalStockOrPayment() {
+    void shouldRejectItemChangesAfterSuccessfulPaymentThroughHttpWithoutChangingItemsTotalStockOrPayment() throws Exception {
+        final String sku = "SKU-PAID-ORDER";
+        final String idempotencyKey = UUID.randomUUID().toString();
+
+        UUID customerId = postCustomer();
+        UUID productId = postProduct(sku, "123.00", 5L);
+        UUID orderId = postOrder(customerId);
+        OrderItemResponse item = addOrderItem(orderId, sku, 2L);
+        UUID paymentId = postPaymentAttempt(orderId, idempotencyKey);
+        startProcessingPayment(orderId, paymentId, idempotencyKey);
+        markPaymentAsSucceeded(orderId, paymentId, idempotencyKey);
+        var originalPayment = transactionTemplate.execute(status -> objectMapper.valueToTree(
+                paymentAttemptRepository.findById(paymentId).orElseThrow()));
+
+        var requests = List.of(
+                post("/api/v1/orders/{orderId}/items", orderId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new CreateOrderItemRequest(sku, 1L))),
+                patch("/api/v1/orders/{orderId}/items/{itemId}/quantity", orderId, item.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quanity\":3}"),
+                patch("/api/v1/orders/{orderId}/items/{itemId}/price", orderId, item.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"unitPrice\":200.00}"),
+                delete("/api/v1/orders/{orderId}/items/{itemId}", orderId, item.id()));
+
+        for (var request : requests) {
+            mockMvc.perform(request)
+                    .andExpect(status().isConflict())
+                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(jsonPath("$.status").value(409))
+                    .andExpect(jsonPath("$.message").value("Only pending orders can be modified."));
+
+            transactionTemplate.executeWithoutResult(status -> {
+                var persistedOrder = orderRepository.findById(orderId).orElseThrow();
+
+                assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PAID);
+                assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo("246.00");
+                assertThat(persistedOrder.getItems()).hasSize(1);
+                var persistedItem = persistedOrder.getItems().get(0);
+                assertThat(persistedItem.getId()).isEqualTo(item.id());
+                assertThat(persistedItem.getSku()).isEqualTo(sku);
+                assertThat(persistedItem.getQuantity()).isEqualTo(2L);
+                assertThat(persistedItem.getUnitPrice()).isEqualByComparingTo("123.00");
+                assertThat(persistedItem.getLineTotal()).isEqualByComparingTo("246.00");
+                assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(3L);
+                assertThat(objectMapper.<com.fasterxml.jackson.databind.JsonNode>valueToTree(
+                        paymentAttemptRepository.findById(paymentId).orElseThrow()))
+                        .isEqualTo(originalPayment);
+                assertThat(paymentAttemptRepository.findByOrderId(orderId)).hasSize(1);
+            });
+        }
     }
 
     private OrderItemResponse addOrderItem(UUID orderId, String sku, Long quantity) throws Exception {
