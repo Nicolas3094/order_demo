@@ -15,7 +15,6 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -26,7 +25,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.customer.api.CreateCustomerRequest;
-import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderItemRequest;
 import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
@@ -40,7 +38,6 @@ import com.orders.messages.orders_demo.app.payment.internal.PaymentProvider;
 import com.orders.messages.orders_demo.app.payment.internal.PaymentStatus;
 import com.orders.messages.orders_demo.app.product.api.CreateProductRequest;
 import com.orders.messages.orders_demo.app.product.api.ProductResponse;
-import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 
 @AutoConfigureMockMvc
@@ -123,7 +120,40 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldRejectAddingItemWithInsufficientStockThroughHttpWithoutChangingItemsOrderTotalOrStock() {
+    void shouldRejectAddingItemWithInsufficientStockThroughHttpWithoutChangingItemsOrderTotalOrStock()
+            throws Exception {
+        final String sku = "SKU-INSUFFICIENT";
+        var request = new CreateOrderItemRequest(sku, 4L);
+
+        UUID customerId = postCustomer();
+        UUID productId = postProduct(sku, "123.00", 5L);
+        UUID orderId = postOrder(customerId);
+        OrderItemResponse existingItem = addOrderItem(orderId, sku, 2L);
+        mockMvc.perform(post("/api/v1/orders/{orderId}/items", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Insufficient stock."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items"));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var persistedOrder = orderRepository.findById(orderId).orElseThrow();
+            var persistedProduct = productRepository.findById(productId).orElseThrow();
+
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo("246.00");
+            assertThat(persistedOrder.getItems()).hasSize(1);
+            var persistedItem = persistedOrder.getItems().get(0);
+            assertThat(persistedItem.getId()).isEqualTo(existingItem.id());
+            assertThat(persistedItem.getSku()).isEqualTo(sku);
+            assertThat(persistedItem.getQuantity()).isEqualTo(2L);
+            assertThat(persistedItem.getUnitPrice()).isEqualByComparingTo("123.00");
+            assertThat(persistedItem.getLineTotal()).isEqualByComparingTo("246.00");
+            assertThat(persistedProduct.getQuantity()).isEqualTo(3L);
+            assertThat(paymentAttemptRepository.findByOrderId(orderId)).isEmpty();
+        });
     }
 
     @Test
