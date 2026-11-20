@@ -67,7 +67,6 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
     private final List<UUID> paymentsIds = new ArrayList<>();
 
     private static final String CUSTOMER_BASE_PATH = "/api/v1/customers";
-    private static final String CUSTOMER_ORDER_BASE_PATH = "/api/v1/customers/{customerId}/orders";
     private static final String PRODUCT_BASE_PATH = "/api/v1/products";
     private static final String ORDER_BASE_PATH = "/api/v1/orders";
 
@@ -206,7 +205,48 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldRejectPaymentForCancelledOrderThroughHttpWithoutCreatingPaymentOrChangingRestoredStock() {
+    void shouldRejectPaymentForCancelledOrderThroughHttpWithoutCreatingPaymentOrChangingRestoredStock()
+            throws Exception {
+        final String sku = "SKU-CANCELLED-ORDER";
+
+        UUID customerId = postCustomer();
+        UUID productId = postProduct(sku, "123.00", 5L);
+        UUID orderId = postOrder(customerId);
+        OrderItemResponse existingItem = addOrderItem(orderId, sku, 2L);
+        mockMvc.perform(patch("/api/v1/orders/{orderId}/cancel", orderId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(orderId.toString()))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(5L);
+            assertThat(paymentAttemptRepository.findByOrderId(orderId)).isEmpty();
+        });
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.NONE, UUID.randomUUID().toString());
+        mockMvc.perform(post("/api/v1/orders/{orderId}/payments", orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Only pending orders can be modified."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/payments"));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var persistedOrder = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+            assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo("246.00");
+            assertThat(persistedOrder.getItems()).hasSize(1);
+            var persistedItem = persistedOrder.getItems().get(0);
+            assertThat(persistedItem.getId()).isEqualTo(existingItem.id());
+            assertThat(persistedItem.getQuantity()).isEqualTo(2L);
+            assertThat(persistedItem.getLineTotal()).isEqualByComparingTo("246.00");
+            assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(5L);
+            assertThat(paymentAttemptRepository.findByOrderId(orderId)).isEmpty();
+            assertThat(paymentAttemptRepository.findByIdempotencyKey(request.idempotencyKey())).isEmpty();
+        });
     }
 
     @Test
