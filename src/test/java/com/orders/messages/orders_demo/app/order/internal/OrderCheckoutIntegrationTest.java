@@ -250,7 +250,49 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldRejectIdempotencyKeyFromAnotherOrderThroughHttpWith409WithoutCreatingOrChangingPayments() {
+    void shouldRejectIdempotencyKeyFromAnotherOrderThroughHttpWith409WithoutCreatingOrChangingPayments()
+            throws Exception {
+        final String sku = "SKU-IDEMPOTENCY";
+        final String idempotencyKey = UUID.randomUUID().toString();
+
+        UUID productId = postProduct(sku, "123.00", 5L);
+        UUID firstOrderId = postOrder(postCustomer());
+        addOrderItem(firstOrderId, sku, 1L);
+        UUID firstPaymentId = postPaymentAttempt(firstOrderId, idempotencyKey);
+        UUID secondOrderId = postOrder(postCustomer());
+        addOrderItem(secondOrderId, sku, 2L);
+        UUID secondPaymentId = postPaymentAttempt(secondOrderId, UUID.randomUUID().toString());
+        var originalPayments = transactionTemplate.execute(status -> paymentAttemptRepository.findAll().stream()
+                .map(payment -> List.of(payment.getId(), objectMapper.valueToTree(payment)))
+                .toList());
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.NONE, idempotencyKey);
+        mockMvc.perform(post("/api/v1/orders/{orderId}/payments", secondOrderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Requested order ID is not equal to payment's order."))
+                .andExpect(jsonPath("$.path").value("/api/v1/orders/" + secondOrderId + "/payments"));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var persistedPayments = paymentAttemptRepository.findAll().stream()
+                    .map(payment -> List.of(payment.getId(), objectMapper.valueToTree(payment)))
+                    .toList();
+
+            assertThat(persistedPayments).containsExactlyInAnyOrderElementsOf(originalPayments);
+            assertThat(paymentAttemptRepository.findByIdempotencyKey(idempotencyKey).orElseThrow().getId())
+                    .isEqualTo(firstPaymentId);
+            assertThat(paymentAttemptRepository.findByOrderId(firstOrderId))
+                    .extracting(payment -> payment.getId()).containsExactly(firstPaymentId);
+            assertThat(paymentAttemptRepository.findByOrderId(secondOrderId))
+                    .extracting(payment -> payment.getId()).containsExactly(secondPaymentId);
+            assertThat(orderRepository.findById(firstOrderId).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(orderRepository.findById(secondOrderId).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(2L);
+        });
     }
 
     @Test
