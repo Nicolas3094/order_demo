@@ -1,12 +1,15 @@
 package com.orders.messages.orders_demo.app.repositories;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
@@ -29,12 +32,102 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
     private OrderRepository orderRepository;
 
     @Test
+    public void shouldGetOrderByCustomerIdAndPageable() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        Pageable pageable = Pageable.ofSize(3);
+        UUID orderId_1 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        UUID orderId_2 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        UUID orderId_3 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        UUID orderId_4 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        entityManager.clear();
+
+        Page<OrderEntity> result = orderRepository.findByCustomerId(customer.getId(), pageable);
+
+        assertThat(result).hasSize(3);
+        assertThat(result).extracting(OrderEntity::getId).containsExactlyInAnyOrder(orderId_1, orderId_2, orderId_3);
+        assertThat(result).extracting(OrderEntity::getId).doesNotContain(orderId_4);
+    }
+
+    @Test
+    public void shouldGetByIdAndCustomerId() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        UUID orderId_1 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        entityManager.clear();
+
+        Optional<OrderEntity> result = orderRepository.findByIdAndCustomerId(orderId_1, customer.getId());
+
+        assertThat(result).isNotEmpty();
+        assertThat(result.get()).isEqualTo(OrderEntity.builder()
+                .id(orderId_1)
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build());
+    }
+
+    @Test
+    public void shouldGetOrderByStatusAndCustomerIdAndPageable() {
+        CustomerEntity customer = customerRepository.save(createCustomer());
+        Pageable pageable = Pageable.ofSize(3);
+        UUID orderId_1 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        UUID orderId_2 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        UUID orderId_3 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        UUID orderId_4 = orderRepository.saveAndFlush(OrderEntity.builder()
+                .customerId(customer.getId())
+                .currency(Currency.MXN)
+                .build()).getId();
+        entityManager.clear();
+
+        Page<OrderEntity> result = orderRepository.findByCustomerIdAndStatus(
+                customer.getId(), OrderStatus.PENDING_PAYMENT, pageable);
+
+        assertThat(result).hasSize(3);
+        assertThat(result).extracting(OrderEntity::getId).containsExactlyInAnyOrder(orderId_1, orderId_2, orderId_3);
+        assertThat(result).extracting(OrderEntity::getId).doesNotContain(orderId_4);
+    }
+
+    @Test
     public void shouldPersistAndFindOrder() {
         CustomerEntity customer = customerRepository.save(createCustomer());
         OrderEntity order = OrderEntity.builder()
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
-                .addItem(createOrderItem())
+                .addItem(createDefaultOrderItem())
                 .build();
         OrderEntity savedOrder = orderRepository.saveAndFlush(order);
         var orderId = savedOrder.getId();
@@ -58,7 +151,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
         OrderEntity order = OrderEntity.builder()
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
-                .addItem(createOrderItem())
+                .addItem(createDefaultOrderItem())
                 .addItem(createOrderItem2())
                 .build();
         OrderEntity savedOrder = orderRepository.saveAndFlush(order);
@@ -94,7 +187,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
         OrderEntity order = OrderEntity.builder()
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
-                .addItem(createOrderItem())
+                .addItem(createDefaultOrderItem())
                 .build();
         OrderEntity savedOrder = orderRepository.saveAndFlush(order);
         savedOrder.cancelOrder();
@@ -116,7 +209,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
         OrderEntity order = OrderEntity.builder()
                 .customerId(customer.getId())
                 .currency(Currency.MXN)
-                .addItem(createOrderItem())
+                .addItem(createDefaultOrderItem())
                 .build();
         OrderEntity savedOrder = orderRepository.saveAndFlush(order);
         Long version1 = savedOrder.getVersion();
@@ -140,7 +233,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
         CustomerEntity customer = customerRepository.save(createCustomer());
         OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
                 .customerId(customer.getId())
-                .addItem(createOrderItem())
+                .addItem(createDefaultOrderItem())
                 .addItem(createOrderItem2())
                 .build());
         UUID orderId = order.getId();
@@ -166,7 +259,7 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
         CustomerEntity customer = customerRepository.save(createCustomer());
         OrderEntity order = orderRepository.saveAndFlush(OrderEntity.builder()
                 .customerId(customer.getId())
-                .addItem(createOrderItem())
+                .addItem(createDefaultOrderItem())
                 .build());
         UUID orderId = order.getId();
         UUID itemId = order.getItems().get(0).getId();
@@ -189,10 +282,17 @@ class OrderRepositoryIntegrationTest extends PostgresContainer {
         return new CustomerEntity(UUID.randomUUID() + "@example.com", "Test Customer");
     }
 
-    private OrderItemEntity createOrderItem() {
+    private OrderItemEntity createDefaultOrderItem() {
         return OrderItemEntity.builder()
                 .description("order item 1")
                 .unitPrice(new BigDecimal("1250.50"))
+                .build();
+    }
+
+    private OrderItemEntity createOrderItem(String descritpion, String unitPrince) {
+        return OrderItemEntity.builder()
+                .description(descritpion)
+                .unitPrice(new BigDecimal(unitPrince))
                 .build();
     }
 
