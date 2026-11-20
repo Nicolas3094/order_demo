@@ -76,22 +76,25 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse createPaymentAttempt(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
-        OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
 
         Optional<PaymentAttemptEntity> paymentOpt = paymentAttemptRepository
                 .findByIdempotencyKey(paymentRequest.idempotencyKey());
 
-        boolean hasSameKey = paymentOpt.isPresent();
+        if (paymentOpt.isPresent()) {
 
-        if (hasSameKey) {
-            boolean comesFromSameOrder = paymentOpt.get().getOrderId().equals(orderData.orderId());
+            boolean comesFromSameOrder = paymentOpt.get().getOrderId().equals(orderId);
 
             if (comesFromSameOrder) {
                 return PaymentAttemptMapper.toResponse(paymentOpt.get());
             }
 
-            throw new InvalidPaymentStateException("Requested order ID is not equal to payment's order.");
+            throw new InvalidPaymentStateException(
+                    "Requested order ID is not equal to payment's order.");
         }
+
+        OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
+
+        orderInternalApi.markAsPaymentInProgress(orderId);
 
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository
                 .save(PaymentAttemptMapper.toEntity(
@@ -114,6 +117,7 @@ public class PaymentAttemptService {
     @Transactional
     public PaymentAttemptResponse startProcessing(UUID orderId, UUID paymentId) {
         return updatePaymentAttemptState(orderId, paymentId, payment -> {
+
             orderInternalApi.validateCanReceivePayment(orderId);
 
             payment.startProcessing();

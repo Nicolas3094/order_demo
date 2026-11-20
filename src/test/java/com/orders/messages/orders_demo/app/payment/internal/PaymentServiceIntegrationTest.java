@@ -55,30 +55,31 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     @Test
     void shouldCreatePaymentAttemptWithPersistedOrderAmount() {
         UUID orderId = persistOrder();
-        var request = buildCreatePaymentRequest();
+        var paymentRequest = buildCreatePaymentRequest();
 
-        var result = paymentService.createPaymentAttempt(orderId, request);
+        var result = paymentService.createPaymentAttempt(orderId, paymentRequest);
         paymentIds.add(result.id());
 
         assertThat(result.orderId()).isEqualTo(orderId);
         assertThat(result.amount()).isEqualByComparingTo("247.00");
         assertThat(result.provider()).isEqualTo(PaymentProvider.STRIPE);
-        assertThat(result.idempotencyKey()).isEqualTo(request.idempotencyKey());
-        var persisted = readPayment(result.id());
-        assertThat(persisted.getStatus()).isEqualTo(PaymentStatus.CREATED);
-        assertThat(persisted.getAmount()).isEqualByComparingTo("247.00");
-        assertThat(persisted.getOrderId()).isEqualTo(orderId);
+        assertThat(result.idempotencyKey()).isEqualTo(paymentRequest.idempotencyKey());
+        var persistedPayment = readPayment(result.id());
+        assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.CREATED);
+        assertThat(persistedPayment.getAmount()).isEqualByComparingTo("247.00");
+        assertThat(persistedPayment.getOrderId()).isEqualTo(orderId);
+        var persistedOrder = readOrder(orderId);
+        assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
     }
 
     @Test
     void shouldReuseExistingPaymentForRepeatedIdempotencyKey() {
         UUID orderId = persistOrder();
-        var request = buildCreatePaymentRequest();
+        var paymentRequest = buildCreatePaymentRequest();
 
-        var first = paymentService.createPaymentAttempt(orderId, request);
+        var first = paymentService.createPaymentAttempt(orderId, paymentRequest);
         paymentIds.add(first.id());
-
-        var repeated = paymentService.createPaymentAttempt(orderId, request);
+        var repeated = paymentService.createPaymentAttempt(orderId, paymentRequest);
 
         assertThat(repeated.id()).isEqualTo(first.id());
         assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
@@ -266,6 +267,11 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
 
         assertThat(paymentRepository.findByIdempotencyKey(request.idempotencyKey())).isEmpty();
         assertThat(paymentRepository.findByOrderId(orderId)).isEmpty();
+        transactionTemplate.executeWithoutResult(status -> {
+            OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        });
     }
 
     @Test
@@ -292,7 +298,13 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
         return new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, UUID.randomUUID().toString());
     }
 
+    private OrderEntity readOrder(UUID id) {
+        entityManager.clear();
+        return transactionTemplate.execute(status -> orderRepository.findById(id).orElseThrow());
+    }
+
     private PaymentAttemptEntity readPayment(UUID id) {
+        entityManager.clear();
         return transactionTemplate.execute(status -> paymentRepository.findById(id).orElseThrow());
     }
 

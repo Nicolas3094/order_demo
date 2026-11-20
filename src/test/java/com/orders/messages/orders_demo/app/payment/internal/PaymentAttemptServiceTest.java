@@ -18,14 +18,10 @@ import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.orders.messages.orders_demo.app.order.api.OrderData;
@@ -151,6 +147,7 @@ public class PaymentAttemptServiceTest {
         PaymentAttemptResponse result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
 
         verify(paymentAttemptRepository).save(paymentCaptor.capture());
+        verify(orderInternalApi).markAsPaymentInProgress(orderId);
         assertEquals(paymentCaptor.getValue().getId(), result.id());
         assertEquals(orderId, result.orderId());
         assertEquals(DEFAULT_IDEMPOTENCY_KEY, result.idempotencyKey());
@@ -168,8 +165,8 @@ public class PaymentAttemptServiceTest {
                 () -> paymentAttemptService.createPaymentAttempt(orderId, paymentRequest));
 
         assertEquals("Order could not be found.", result.getMessage());
+        verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(paymentAttemptRepository, never()).findByIdempotencyKey(anyString());
     }
 
     @Test
@@ -178,16 +175,15 @@ public class PaymentAttemptServiceTest {
                 DEFAULT_IDEMPOTENCY_KEY);
         PaymentAttemptEntity expectedPayment = createPaymentAttemptWithStatusAndOrder(orderId,
                 PaymentStatus.PROCESSING);
-        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, DEFAULT_AMOUNT_TOTAL));
         when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY))
                 .thenReturn(Optional.of(expectedPayment));
 
         PaymentAttemptResponse result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
 
         assertEquals(expectedPayment.getId(), result.id());
-        verify(orderInternalApi).getOrderDataForPayment(orderId);
         verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi);
     }
 
     @Test
@@ -197,7 +193,6 @@ public class PaymentAttemptServiceTest {
                 DEFAULT_IDEMPOTENCY_KEY);
         PaymentAttemptEntity existingPayment = createPaymentAttemptWithStatusAndOrder(otherOrderId,
                 PaymentStatus.CREATED);
-        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, DEFAULT_AMOUNT_TOTAL));
         when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY))
                 .thenReturn(Optional.of(existingPayment));
 
@@ -208,6 +203,7 @@ public class PaymentAttemptServiceTest {
         assertEquals(otherOrderId, existingPayment.getOrderId());
         assertEquals(PaymentStatus.CREATED, existingPayment.getStatus());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi);
     }
 
     /*
