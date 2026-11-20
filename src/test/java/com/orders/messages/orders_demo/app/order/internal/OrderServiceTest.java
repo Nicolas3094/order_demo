@@ -22,6 +22,9 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.junit.jupiter.params.provider.EnumSource;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
@@ -49,6 +52,9 @@ public class OrderServiceTest {
     private CustomerInternalApi customerInternalApi;
     @Mock
     private ProductInternalApi productInternalApi;
+
+    @Mock
+    private JdbcTemplate jdbcTemplate;
 
     @InjectMocks
     private OrderService orderService;
@@ -381,6 +387,88 @@ public class OrderServiceTest {
 
         assertEquals("Order could not be found.", result.getMessage());
         verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+
+    @Test
+    void createOrReuseOrder_WhenNoOpenOrderExists_ShouldCreateOrder() {
+        UUID customerId = UUID.randomUUID();
+        var request = openOrderRequest(customerId, Currency.MXN);
+        mockExistingCustomer(customerId);
+        when(orderRepository.save(any(OrderEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = orderService.createOrReuseOrder(request);
+
+        assertThat(result.created()).isTrue();
+        assertThat(result.order().customerId()).isEqualTo(customerId);
+        assertThat(result.order().status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(result.order().currency()).isEqualTo(Currency.MXN);
+        assertThat(result.order().amountTotal()).isEqualByComparingTo("0");
+        verify(orderRepository).save(any(OrderEntity.class));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = { "PENDING_PAYMENT", "PAYMENT_IN_PROGRESS" })
+    void createOrReuseOrder_WhenOpenOrderExists_ShouldReturnItWithoutSaving(OrderStatus status) {
+        UUID customerId = UUID.randomUUID();
+        var existing = OrderEntity.builder().id(UUID.randomUUID()).customerId(customerId)
+                .currency(Currency.MXN).status(status).addItem(createOrderItem("SKU-123", 2L)).build();
+        mockExistingCustomer(customerId);
+        when(orderRepository.findByCustomerIdAndStatusIn(customerId,
+                List.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_IN_PROGRESS)))
+                .thenReturn(Optional.of(existing));
+
+        var result = orderService.createOrReuseOrder(openOrderRequest(customerId, Currency.MXN));
+
+        assertThat(result.created()).isFalse();
+        assertThat(result.order().id()).isEqualTo(existing.getId());
+        assertThat(result.order().status()).isEqualTo(status);
+        assertThat(result.order().amountTotal()).isEqualByComparingTo("20");
+        assertThat(existing.getItems()).hasSize(1);
+        assertThat(existing.getItems().get(0).getQuantity()).isEqualTo(2L);
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+        verifyNoInteractions(productInternalApi);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = { "PENDING_PAYMENT", "PAYMENT_IN_PROGRESS" })
+    void createOrReuseOrder_WhenCurrencyDiffers_ShouldRejectWithoutChangingOpenOrder(OrderStatus status) {
+        UUID customerId = UUID.randomUUID();
+        var existing = OrderEntity.builder().id(UUID.randomUUID()).customerId(customerId)
+                .currency(Currency.MXN).status(status).build();
+        mockExistingCustomer(customerId);
+        when(orderRepository.findByCustomerIdAndStatusIn(customerId,
+                List.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_IN_PROGRESS)))
+                .thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> orderService.createOrReuseOrder(openOrderRequest(customerId, Currency.USD)))
+                .isInstanceOf(InvalidOrderStateException.class)
+                .hasMessage("The open order uses a different currency.");
+
+        assertThat(existing.getCurrency()).isEqualTo(Currency.MXN);
+        assertThat(existing.getStatus()).isEqualTo(status);
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+
+    @Test
+    void createOrReuseOrder_WhenCustomerIsMissing_ShouldRejectBeforeQueryingOrders() {
+        UUID customerId = UUID.randomUUID();
+        when(customerInternalApi.getCustomer(customerId)).thenThrow(new CustomerNotFoundException());
+
+        assertThatThrownBy(() -> orderService.createOrReuseOrder(openOrderRequest(customerId, Currency.MXN)))
+                .isInstanceOf(CustomerNotFoundException.class)
+                .hasMessage("Customer could not be found.");
+
+        verifyNoInteractions(orderRepository, jdbcTemplate);
+    }
+
+    private void mockExistingCustomer(UUID customerId) {
+        when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
+                .id(customerId).email("customer@example.com").name("Test Customer")
+                .status(CustomerStatus.ACTIVE).build());
+    }
+
+    private CreateOrderRequest openOrderRequest(UUID customerId, Currency currency) {
+        return CreateOrderRequest.builder().customerId(customerId).currency(currency).build();
     }
 
     private OrderEntity createOrder(OrderStatus status) {

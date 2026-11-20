@@ -13,6 +13,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -102,6 +104,65 @@ class OrderControllerIntegrationTest extends PostgresContainer {
             assertThat(orderEntity.getCreatedAt()).isNotNull();
             assertThat(orderEntity.getVersion()).isNotNull();
         });
+    }
+
+    @Test
+    void shouldReturn201Then200WithSameOrderForRepeatedCreationThroughHttp() throws Exception {
+        UUID customerId = persistCustomer();
+        var request = createValidRequest(customerId);
+
+        var first = mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated()).andReturn();
+        UUID id = objectMapper.readValue(first.getResponse().getContentAsString(), OrderResponse.class).id();
+        orderIds.add(id);
+
+        mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(id.toString()));
+
+        assertThat(orderRepository.findByCustomerId(customerId, org.springframework.data.domain.Pageable.unpaged())).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = { "PENDING_PAYMENT", "PAYMENT_IN_PROGRESS" })
+    void shouldReturn200WithExistingOpenOrderThroughHttp(OrderStatus state) throws Exception {
+        UUID customerId = persistCustomer();
+        UUID id = persistOrder(customerId, state);
+        UUID itemId = persistOrderItem(id, "SKU-OPEN", 2L);
+
+        mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(createValidRequest(customerId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value(state.name()))
+                .andExpect(jsonPath("$.amountTotal").value(246.00));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var orders = orderRepository.findByCustomerId(customerId, org.springframework.data.domain.Pageable.unpaged());
+            assertThat(orders).hasSize(1);
+            assertThat(orders.getContent().get(0).getItems()).extracting(OrderItemEntity::getId).containsExactly(itemId);
+        });
+    }
+
+    @Test
+    void shouldReturn409ForDifferentCurrencyWithoutCreatingAnotherOrderThroughHttp() throws Exception {
+        UUID customerId = persistCustomer();
+        UUID id = persistOrder(customerId);
+        var request = CreateOrderRequest.builder().customerId(customerId).currency(Currency.USD).build();
+
+        mockMvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("The open order uses a different currency."));
+
+        var persisted = orderRepository.findByCustomerId(customerId, org.springframework.data.domain.Pageable.unpaged());
+        assertThat(persisted).hasSize(1);
+        assertThat(persisted.getContent().get(0).getId()).isEqualTo(id);
+        assertThat(persisted.getContent().get(0).getCurrency()).isEqualTo(Currency.MXN);
     }
 
     @Test

@@ -40,8 +40,9 @@ public class OrderController {
 
     @PostMapping
     public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody CreateOrderRequest createOrderRequest) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(orderService.createOrder(createOrderRequest));
+        var result = orderService.createOrReuseOrder(createOrderRequest);
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(result.order());
     }
 
     @PatchMapping("/{id}/cancel")

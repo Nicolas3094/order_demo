@@ -111,7 +111,7 @@ public class OrderControllerTest {
     public void createOrder_WhenRequestIsValid_ShouldReturn201() throws Exception {
         CreateOrderRequest request = createValidRequest(customerId);
         OrderResponse order = createPendingOrder(customerId);
-        when(orderService.createOrder(request)).thenReturn(order);
+        when(orderService.createOrReuseOrder(request)).thenReturn(new OrderService.OrderCreationResult(order, true));
 
         mvc.perform(post("/api/v1/orders")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -122,13 +122,42 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.currency").value("MXN"))
                 .andExpect(jsonPath("$.amountTotal").value(123.00))
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
-        verify(orderService).createOrder(request);
+        verify(orderService).createOrReuseOrder(request);
+    }
+
+    @Test
+    void createOrder_WhenOpenOrderIsReused_ShouldReturn200WithExistingOrder() throws Exception {
+        var request = createValidRequest(customerId);
+        var existing = createPendingOrder(customerId);
+        when(orderService.createOrReuseOrder(request))
+                .thenReturn(new OrderService.OrderCreationResult(existing, false));
+
+        mvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(existing.id().toString()))
+                .andExpect(jsonPath("$.customerId").value(customerId.toString()));
+    }
+
+    @Test
+    void createOrder_WhenCurrencyDiffersFromOpenOrder_ShouldReturn409() throws Exception {
+        var request = createValidRequest(customerId);
+        when(orderService.createOrReuseOrder(request))
+                .thenThrow(new InvalidOrderStateException("The open order uses a different currency."));
+
+        mvc.perform(post("/api/v1/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("The open order uses a different currency."));
     }
 
     @Test
     public void createOrder_WhenCustomerDoesNotExist_ShouldReturn404() throws Exception {
         CreateOrderRequest request = createValidRequest(customerId);
-        when(orderService.createOrder(request)).thenThrow(new CustomerNotFoundException());
+        when(orderService.createOrReuseOrder(request)).thenThrow(new CustomerNotFoundException());
 
         mvc.perform(post("/api/v1/orders")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -157,7 +186,7 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(jsonPath("$.message").value("Customer id is required."))
                 .andExpect(jsonPath("$.path").value("/api/v1/orders"));
-        verify(orderService, never()).createOrder(any());
+        verify(orderService, never()).createOrReuseOrder(any());
     }
 
     @Test
@@ -176,7 +205,7 @@ public class OrderControllerTest {
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(jsonPath("$.message").value("Currency is required."))
                 .andExpect(jsonPath("$.path").value("/api/v1/orders"));
-        verify(orderService, never()).createOrder(any());
+        verify(orderService, never()).createOrReuseOrder(any());
     }
 
     @Test
@@ -317,6 +346,7 @@ public class OrderControllerTest {
 
     private static OrderResponse createPendingOrder(UUID customerId) {
         return OrderResponse.builder()
+                .setId(UUID.randomUUID())
                 .customerId(customerId)
                 .currency(Currency.MXN)
                 .amountTotal(DEFAULT_UNIT_PRICE)
@@ -333,7 +363,6 @@ public class OrderControllerTest {
                 .build();
     }
 
-    @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsFromPending() {
         return Stream.of(
                 Arguments.of(new OrderAlreadyCancelledException(), "Order is already cancelled."),
@@ -341,7 +370,6 @@ public class OrderControllerTest {
                 Arguments.of(new OrderAlreadyPaidException(), "Paid orders cannot be modified."));
     }
 
-    @SuppressWarnings("unused")
     private static Stream<Arguments> conflictExceptionsOnRefundOrder() {
         return Stream.of(
                 Arguments.of(new OrderAlreadyCancelledException(), "Order is already cancelled."),

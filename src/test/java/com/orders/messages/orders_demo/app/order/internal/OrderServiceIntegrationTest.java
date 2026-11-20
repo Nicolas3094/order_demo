@@ -4,6 +4,9 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -127,6 +130,116 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             assertThat(persisted.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
             assertThat(persisted.getItems()).hasSize(0);
         });
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = { "PENDING_PAYMENT", "PAYMENT_IN_PROGRESS" })
+    void shouldReuseOpenOrderWithoutChangingItemsTotalOrVersion(OrderStatus state) {
+        UUID orderId = persistOrder(state);
+        var before = transactionTemplate.execute(status -> orderRepository.findById(orderId).orElseThrow());
+        var request = openOrderRequest(before.getCustomerId(), Currency.MXN);
+
+        var result = orderService.createOrReuseOrder(request);
+
+        assertThat(result.created()).isFalse();
+        assertThat(result.order().id()).isEqualTo(orderId);
+        transactionTemplate.executeWithoutResult(status -> {
+            var orders = orderRepository.findByCustomerId(before.getCustomerId(), org.springframework.data.domain.Pageable.unpaged());
+            assertThat(orders).hasSize(1);
+            var persisted = orders.getContent().get(0);
+            assertThat(persisted.getStatus()).isEqualTo(state);
+            assertThat(persisted.getVersion()).isEqualTo(before.getVersion());
+            assertThat(persisted.getAmountTotal()).isEqualByComparingTo(before.getAmountTotal());
+            assertThat(persisted.getItems()).hasSize(1);
+            assertThat(persisted.getItems().get(0).getQuantity()).isEqualTo(1L);
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = { "PENDING_PAYMENT", "PAYMENT_IN_PROGRESS" })
+    void shouldRejectDifferentCurrencyWithoutChangingOpenOrder(OrderStatus state) {
+        UUID orderId = persistOrder(state);
+        var before = transactionTemplate.execute(status -> orderRepository.findById(orderId).orElseThrow());
+
+        assertThatThrownBy(() -> orderService.createOrReuseOrder(openOrderRequest(before.getCustomerId(), Currency.USD)))
+                .isInstanceOf(InvalidOrderStateException.class)
+                .hasMessage("The open order uses a different currency.");
+
+        var orders = orderRepository.findByCustomerId(before.getCustomerId(), org.springframework.data.domain.Pageable.unpaged());
+        assertThat(orders).hasSize(1);
+        assertThat(orders.getContent().get(0).getCurrency()).isEqualTo(Currency.MXN);
+        assertThat(orders.getContent().get(0).getStatus()).isEqualTo(state);
+        assertThat(orders.getContent().get(0).getVersion()).isEqualTo(before.getVersion());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = OrderStatus.class, names = { "PAID", "CANCELLED", "EXPIRED", "REFUNDED" })
+    void shouldCreateNewOrderWhenOnlyHistoricalOrderExists(OrderStatus state) {
+        UUID historicalId = persistOrder(state);
+        UUID customerId = orderRepository.findById(historicalId).orElseThrow().getCustomerId();
+
+        var result = orderService.createOrReuseOrder(openOrderRequest(customerId, Currency.MXN));
+        orderIds.add(result.order().id());
+
+        assertThat(result.created()).isTrue();
+        assertThat(result.order().id()).isNotEqualTo(historicalId);
+        assertThat(result.order().status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(orderRepository.findById(historicalId).orElseThrow().getStatus()).isEqualTo(state);
+    }
+
+    @Test
+    void shouldCreateOneOpenOrderForConcurrentRequestsFromSameCustomer() throws Exception {
+        UUID customerId = persistCustomer();
+        var request = openOrderRequest(customerId, Currency.MXN);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+
+        try {
+            java.util.concurrent.Callable<OrderService.OrderCreationResult> action = () -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Concurrent start timed out");
+                }
+                return orderService.createOrReuseOrder(request);
+            };
+            var first = executor.submit(action);
+            var second = executor.submit(action);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            var results = List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
+
+            assertThat(results).extracting(result -> result.order().id()).containsOnly(results.get(0).order().id());
+            assertThat(results).extracting(OrderService.OrderCreationResult::created).containsExactlyInAnyOrder(true, false);
+            var persisted = orderRepository.findByCustomerId(customerId, org.springframework.data.domain.Pageable.unpaged());
+            assertThat(persisted).hasSize(1);
+            assertThat(persisted.getContent().get(0).getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+            orderRepository.findByCustomerId(customerId, org.springframework.data.domain.Pageable.unpaged())
+                    .forEach(order -> orderIds.add(order.getId()));
+        }
+    }
+
+    @Test
+    void shouldCreateIndependentOpenOrdersForDifferentCustomers() {
+        UUID firstCustomer = persistCustomer();
+        UUID secondCustomer = persistCustomer();
+
+        var first = orderService.createOrReuseOrder(openOrderRequest(firstCustomer, Currency.MXN));
+        orderIds.add(first.order().id());
+        var second = orderService.createOrReuseOrder(openOrderRequest(secondCustomer, Currency.MXN));
+        orderIds.add(second.order().id());
+
+        assertThat(first.created()).isTrue();
+        assertThat(second.created()).isTrue();
+        assertThat(first.order().id()).isNotEqualTo(second.order().id());
+    }
+
+    private CreateOrderRequest openOrderRequest(UUID customerId, Currency currency) {
+        return CreateOrderRequest.builder().customerId(customerId).currency(currency).build();
     }
 
     @Test
