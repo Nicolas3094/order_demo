@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.app.order;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -44,6 +45,11 @@ public class OrderInternalApiImpl implements OrderInternalApi {
     @Transactional
     public void markAsPaymentInProgress(UUID orderId) {
         OrderEntity order = getOrder(orderId);
+
+        if (order.getItems().isEmpty() || order.getAmountTotal().signum() <= 0) {
+            throw new InvalidOrderStateException(
+                    "Order must contain items and have a positive total to start payment.");
+        }
 
         order.paymentInProgress();
 

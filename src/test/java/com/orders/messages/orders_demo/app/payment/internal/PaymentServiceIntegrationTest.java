@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -460,6 +461,61 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
                 default -> throw new IllegalArgumentException("Unsupported fixture status");
             }
             orderRepository.saveAndFlush(order);
+        });
+    }
+
+    @Test
+    void shouldRejectPaymentForEmptyOrderWithoutPersistedChanges() {
+        UUID orderId = persistOrder();
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            var item = order.getItems().get(0);
+            order.removeItem(item);
+            orderRepository.saveAndFlush(order);
+        });
+        var initialVersion = orderRepository.findById(orderId).orElseThrow().getVersion();
+        String key = UUID.randomUUID().toString();
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, key);
+
+        assertThatThrownBy(() -> paymentService.createPaymentAttempt(orderId, request))
+                .isInstanceOf(InvalidOrderStateException.class)
+                .hasMessage("Order must contain items and have a positive total to start payment.");
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(order.getVersion()).isEqualTo(initialVersion);
+            assertThat(order.getItems()).isEmpty();
+            assertThat(order.getAmountTotal()).isEqualByComparingTo("0");
+            assertThat(paymentRepository.findByOrderId(orderId)).isEmpty();
+            assertThat(paymentRepository.findByIdempotencyKey(key)).isEmpty();
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "0.00", "-1.00" })
+    void shouldRejectPaymentForNonPositiveOrderTotalWithoutPersistedChanges(String total) {
+        UUID orderId = persistOrder();
+        // Simulate inconsistent persisted data while retaining the order item.
+        transactionTemplate.executeWithoutResult(status -> entityManager
+                .createNativeQuery("UPDATE orders SET amount_total = :total WHERE id = :id")
+                .setParameter("total", new BigDecimal(total)).setParameter("id", orderId).executeUpdate());
+        var initialVersion = orderRepository.findById(orderId).orElseThrow().getVersion();
+        String key = UUID.randomUUID().toString();
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, key);
+
+        assertThatThrownBy(() -> paymentService.createPaymentAttempt(orderId, request))
+                .isInstanceOf(InvalidOrderStateException.class)
+                .hasMessage("Order must contain items and have a positive total to start payment.");
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(order.getVersion()).isEqualTo(initialVersion);
+            assertThat(order.getItems()).hasSize(1);
+            assertThat(order.getAmountTotal()).isEqualByComparingTo(total);
+            assertThat(paymentRepository.findByOrderId(orderId)).isEmpty();
+            assertThat(paymentRepository.findByIdempotencyKey(key)).isEmpty();
         });
     }
 

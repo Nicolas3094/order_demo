@@ -7,6 +7,8 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -270,6 +272,35 @@ public class OrderInternalApiImplTest {
                                 .quantity(1L)
                                 .build())
                 .build();
+    }
+
+    @Test
+    void markAsPaymentInProgress_WhenOrderIsEmpty_ShouldRejectWithoutSaving() {
+        var order = createOrderWithStatus(ORDER_ID, OrderStatus.PENDING_PAYMENT);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+
+        var result = assertThrows(InvalidOrderStateException.class,
+                () -> orderInternalApi.markAsPaymentInProgress(ORDER_ID));
+
+        assertEquals("Order must contain items and have a positive total to start payment.", result.getMessage());
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "0", "0.0", "0.00", "-1.00" })
+    void markAsPaymentInProgress_WhenTotalIsNotPositive_ShouldRejectWithoutSaving(String total) {
+        var order = createOrder();
+        // Force an inconsistent total to exercise the defensive validation independently of item presence.
+        ReflectionTestUtils.setField(order, "amountTotal", new BigDecimal(total));
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(order));
+
+        var result = assertThrows(InvalidOrderStateException.class,
+                () -> orderInternalApi.markAsPaymentInProgress(ORDER_ID));
+
+        assertEquals("Order must contain items and have a positive total to start payment.", result.getMessage());
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
     }
 
     private static OrderEntity createOrder() {

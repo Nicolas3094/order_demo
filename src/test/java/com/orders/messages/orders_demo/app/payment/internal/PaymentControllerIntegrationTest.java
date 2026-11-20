@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.ParameterizedTest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -26,12 +28,18 @@ import com.orders.messages.orders_demo.app.payment.api.*;
 
 @AutoConfigureMockMvc
 class PaymentControllerIntegrationTest extends PostgresContainer {
-    @Autowired private MockMvc mockMvc;
-    @Autowired private ObjectMapper objectMapper;
-    @Autowired private TransactionTemplate transactionTemplate;
-    @Autowired private PaymentAttemptRepository paymentRepository;
-    @Autowired private OrderRepository orderRepository;
-    @Autowired private CustomerRepository customerRepository;
+    @Autowired
+    private MockMvc mockMvc;
+    @Autowired
+    private ObjectMapper objectMapper;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+    @Autowired
+    private PaymentAttemptRepository paymentRepository;
+    @Autowired
+    private OrderRepository orderRepository;
+    @Autowired
+    private CustomerRepository customerRepository;
 
     private final List<UUID> paymentIds = new ArrayList<>();
     private final List<UUID> orderIds = new ArrayList<>();
@@ -128,7 +136,8 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
         transactionTemplate.executeWithoutResult(status -> {
             PaymentAttemptEntity payment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
-            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
         });
     }
 
@@ -184,7 +193,8 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
             assertThat(payment.getFailureCode()).isEqualTo(402);
             assertThat(payment.getFailureMessage()).isEqualTo("Payment declined.");
-            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
         });
     }
 
@@ -207,7 +217,8 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
         transactionTemplate.executeWithoutResult(status -> {
             PaymentAttemptEntity payment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
-            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
         });
     }
 
@@ -275,6 +286,73 @@ class PaymentControllerIntegrationTest extends PostgresContainer {
             paymentIds.add(id);
         }
         return id;
+    }
+
+    @Test
+    void shouldRejectPaymentForEmptyOrderWithoutPersistedChanges() throws Exception {
+        UUID orderId = persistOrder();
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            var item = order.getItems().get(0);
+            order.removeItem(item);
+            orderRepository.saveAndFlush(order);
+        });
+        var initialVersion = orderRepository.findById(orderId).orElseThrow().getVersion();
+        String key = UUID.randomUUID().toString();
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, key);
+
+        mockMvc.perform(post(BASE_PATH, orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message")
+                        .value("Order must contain items and have a positive total to start payment."));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(order.getVersion()).isEqualTo(initialVersion);
+            assertThat(order.getItems()).isEmpty();
+            assertThat(order.getAmountTotal()).isEqualByComparingTo("0");
+            assertThat(paymentRepository.findByOrderId(orderId)).isEmpty();
+            assertThat(paymentRepository.findByIdempotencyKey(key)).isEmpty();
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "0.00", "-1.00" })
+    void shouldRejectPaymentForNonPositiveOrderTotalWithoutPersistedChanges(String total) throws Exception {
+        UUID orderId = persistOrder();
+        // Simulate inconsistent persisted data while retaining the order item.
+        transactionTemplate.executeWithoutResult(status -> entityManager
+                .createNativeQuery("UPDATE orders SET amount_total = :total WHERE id = :id")
+                .setParameter("total", new BigDecimal(total)).setParameter("id", orderId).executeUpdate());
+        var initialVersion = orderRepository.findById(orderId).orElseThrow().getVersion();
+        String key = UUID.randomUUID().toString();
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, key);
+
+        mockMvc.perform(post(BASE_PATH, orderId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message")
+                        .value("Order must contain items and have a positive total to start payment."));
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+
+            assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(order.getVersion()).isEqualTo(initialVersion);
+            assertThat(order.getItems()).hasSize(1);
+            assertThat(order.getAmountTotal()).isEqualByComparingTo(total);
+            assertThat(paymentRepository.findByOrderId(orderId)).isEmpty();
+            assertThat(paymentRepository.findByIdempotencyKey(key)).isEmpty();
+        });
     }
 
     private UUID persistOrder() {

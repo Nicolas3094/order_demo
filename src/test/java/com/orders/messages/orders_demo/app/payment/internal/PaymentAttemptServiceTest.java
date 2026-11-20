@@ -530,6 +530,20 @@ public class PaymentAttemptServiceTest {
         verifyNoInteractions(orderInternalApi);
     }
 
+    @Test
+    void createPaymentAttempt_WhenOrderCannotStartPayment_ShouldPropagateRejectionWithoutSaving() {
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+        when(orderInternalApi.getOrderDataForPayment(orderId)).thenReturn(new OrderData(orderId, BigDecimal.ZERO));
+        doThrow(new InvalidOrderStateException("Order must contain items and have a positive total to start payment."))
+                .when(orderInternalApi).markAsPaymentInProgress(orderId);
+
+        var result = assertThrows(InvalidOrderStateException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, request));
+
+        assertEquals("Order must contain items and have a positive total to start payment.", result.getMessage());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
     private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(UUID orderId,
             PaymentStatus status) {
         return PaymentAttemptEntity.builder()
