@@ -38,7 +38,6 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlread
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderAlreadyPaidException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
-import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
 @ExtendWith(MockitoExtension.class)
 public class OrderServiceTest {

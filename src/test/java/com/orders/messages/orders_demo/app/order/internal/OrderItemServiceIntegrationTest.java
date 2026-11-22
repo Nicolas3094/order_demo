@@ -24,7 +24,6 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNo
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
-import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 

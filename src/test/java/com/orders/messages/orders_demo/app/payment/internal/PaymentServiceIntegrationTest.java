@@ -16,6 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
+import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
+import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
 import com.orders.messages.orders_demo.app.order.internal.*;
@@ -40,6 +42,9 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
     private final List<UUID> paymentIds = new ArrayList<>();
     private final List<UUID> orderIds = new ArrayList<>();
     private final List<UUID> customerIds = new ArrayList<>();
+    private final List<UUID> reservationProductIds = new ArrayList<>();
+    @Autowired
+    private ProductRepository productRepository;
 
     @AfterEach
     void cleanUp() {
@@ -50,10 +55,13 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
             orderRepository.flush();
             customerIds.forEach(customerRepository::deleteById);
             customerRepository.flush();
+            reservationProductIds.forEach(productRepository::deleteById);
+            productRepository.flush();
         });
         paymentIds.clear();
         orderIds.clear();
         customerIds.clear();
+        reservationProductIds.clear();
     }
 
     @Test
@@ -521,6 +529,13 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
 
     private UUID persistOrder() {
         return transactionTemplate.execute(status -> {
+            productRepository.findBySku("SKU-123").orElseGet(() -> {
+                ProductEntity persistedProduct = productRepository.saveAndFlush(ProductEntity.builder()
+                        .sku("SKU-123").name("Payment product").description("Payment fixture")
+                        .price(new BigDecimal("123.50")).quantity(100L).build());
+                reservationProductIds.add(persistedProduct.getId());
+                return persistedProduct;
+            });
 
             UUID customerId = customerRepository.saveAndFlush(
                     new CustomerEntity(UUID.randomUUID() + "@example.com", "Test Customer")).getId();

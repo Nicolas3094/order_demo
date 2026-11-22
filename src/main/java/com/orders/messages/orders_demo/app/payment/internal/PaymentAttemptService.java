@@ -12,11 +12,13 @@ import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
+import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
 import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
+import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 
 import jakarta.transaction.Transactional;
 
@@ -26,12 +28,15 @@ public class PaymentAttemptService {
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final OrderInternalApi orderInternalApi;
     private final CustomerInternalApi customerInternalApi;
+    private final ProductInternalApi productInternalApi;
 
     public PaymentAttemptService(PaymentAttemptRepository paymentAttemptRepository,
-            OrderInternalApi orderInternalApi, CustomerInternalApi customerInternalApi) {
+            OrderInternalApi orderInternalApi, CustomerInternalApi customerInternalApi,
+            ProductInternalApi productInternalApi) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.orderInternalApi = orderInternalApi;
         this.customerInternalApi = customerInternalApi;
+        this.productInternalApi = productInternalApi;
     }
 
     /**
@@ -97,9 +102,12 @@ public class PaymentAttemptService {
         }
 
         OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
+
         validateCustomerCanStartPayment(orderData.customerId());
 
         orderInternalApi.markAsPaymentInProgress(orderId);
+
+        balanceStock(orderId);
 
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository
                 .save(PaymentAttemptMapper.toEntity(
@@ -266,4 +274,14 @@ public class PaymentAttemptService {
         return paymentAttempt;
     }
 
+    private void balanceStock(UUID orderId) {
+
+        List<OrderItemResponse> orderItems = orderInternalApi.getAllOrderItemsFromOrder(orderId);
+
+        for (var orderItem : orderItems) {
+            Long requestedQuantity = orderItem.quantity();
+
+            productInternalApi.decreaseProductStock(orderItem.sku(), requestedQuantity);
+        }
+    }
 }

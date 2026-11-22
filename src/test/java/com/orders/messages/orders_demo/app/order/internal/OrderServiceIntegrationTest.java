@@ -32,7 +32,6 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrde
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
-import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
 // PER_CLASS permite que @MethodSource use un método no estático y acceda al servicio inyectado.
 // Con PER_METHOD (el valor por defecto), la fuente debe ser estática; puede devolver
@@ -144,7 +143,8 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
         assertThat(result.created()).isFalse();
         assertThat(result.order().id()).isEqualTo(orderId);
         transactionTemplate.executeWithoutResult(status -> {
-            var orders = orderRepository.findByCustomerId(before.getCustomerId(), org.springframework.data.domain.Pageable.unpaged());
+            var orders = orderRepository.findByCustomerId(before.getCustomerId(),
+                    org.springframework.data.domain.Pageable.unpaged());
             assertThat(orders).hasSize(1);
             var persisted = orders.getContent().get(0);
             assertThat(persisted.getStatus()).isEqualTo(state);
@@ -161,11 +161,13 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
         UUID orderId = persistOrder(state);
         var before = transactionTemplate.execute(status -> orderRepository.findById(orderId).orElseThrow());
 
-        assertThatThrownBy(() -> orderService.createOrReuseOrder(openOrderRequest(before.getCustomerId(), Currency.USD)))
+        assertThatThrownBy(
+                () -> orderService.createOrReuseOrder(openOrderRequest(before.getCustomerId(), Currency.USD)))
                 .isInstanceOf(InvalidOrderStateException.class)
                 .hasMessage("The open order uses a different currency.");
 
-        var orders = orderRepository.findByCustomerId(before.getCustomerId(), org.springframework.data.domain.Pageable.unpaged());
+        var orders = orderRepository.findByCustomerId(before.getCustomerId(),
+                org.springframework.data.domain.Pageable.unpaged());
         assertThat(orders).hasSize(1);
         assertThat(orders.getContent().get(0).getCurrency()).isEqualTo(Currency.MXN);
         assertThat(orders.getContent().get(0).getStatus()).isEqualTo(state);
@@ -210,8 +212,10 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
             var results = List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
 
             assertThat(results).extracting(result -> result.order().id()).containsOnly(results.get(0).order().id());
-            assertThat(results).extracting(OrderService.OrderCreationResult::created).containsExactlyInAnyOrder(true, false);
-            var persisted = orderRepository.findByCustomerId(customerId, org.springframework.data.domain.Pageable.unpaged());
+            assertThat(results).extracting(OrderService.OrderCreationResult::created).containsExactlyInAnyOrder(true,
+                    false);
+            var persisted = orderRepository.findByCustomerId(customerId,
+                    org.springframework.data.domain.Pageable.unpaged());
             assertThat(persisted).hasSize(1);
             assertThat(persisted.getContent().get(0).getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         } finally {

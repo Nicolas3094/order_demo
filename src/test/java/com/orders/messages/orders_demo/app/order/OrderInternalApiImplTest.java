@@ -2,6 +2,7 @@ package com.orders.messages.orders_demo.app.order;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -300,6 +301,48 @@ public class OrderInternalApiImplTest {
 
         assertEquals("Order must contain items and have a positive total to start payment.", result.getMessage());
         assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+
+    @Test
+    void getAllOrderItemsFromOrder_WhenOrderContainsItems_ShouldReturnMappedItemsWithoutSaving() {
+        var persistedOrder = createOrder();
+        var persistedOrderItem = persistedOrder.getItems().get(0);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(persistedOrder));
+
+        var orderItemResponses = orderInternalApi.getAllOrderItemsFromOrder(ORDER_ID);
+
+        assertEquals(1, orderItemResponses.size());
+        var orderItemResponse = orderItemResponses.get(0);
+        assertEquals(persistedOrderItem.getId(), orderItemResponse.id());
+        assertEquals(ORDER_ID, orderItemResponse.orderId());
+        assertEquals(persistedOrderItem.getSku(), orderItemResponse.sku());
+        assertEquals(persistedOrderItem.getDescription(), orderItemResponse.description());
+        assertEquals(persistedOrderItem.getQuantity(), orderItemResponse.quantity());
+        assertEquals(persistedOrderItem.getUnitPrice(), orderItemResponse.unitPrice());
+        assertEquals(persistedOrderItem.getLineTotal(), orderItemResponse.lineTotal());
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+
+    @Test
+    void getAllOrderItemsFromOrder_WhenOrderIsEmpty_ShouldReturnEmptyList() {
+        var emptyOrder = createOrderWithStatus(ORDER_ID, OrderStatus.PENDING_PAYMENT);
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.of(emptyOrder));
+
+        var orderItemResponses = orderInternalApi.getAllOrderItemsFromOrder(ORDER_ID);
+
+        assertEquals(List.of(), orderItemResponses);
+        verify(orderRepository, never()).save(any(OrderEntity.class));
+    }
+
+    @Test
+    void getAllOrderItemsFromOrder_WhenOrderIsMissing_ShouldThrowOrderNotFoundException() {
+        when(orderRepository.findById(ORDER_ID)).thenReturn(Optional.empty());
+
+        var orderNotFoundException = assertThrows(OrderNotFoundException.class,
+                () -> orderInternalApi.getAllOrderItemsFromOrder(ORDER_ID));
+
+        assertEquals(ORDER_NOT_FOUND_MESSAGE, orderNotFoundException.getMessage());
         verify(orderRepository, never()).save(any(OrderEntity.class));
     }
 

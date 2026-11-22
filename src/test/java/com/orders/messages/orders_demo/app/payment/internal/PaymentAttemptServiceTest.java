@@ -17,6 +17,10 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
+import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -47,6 +51,9 @@ public class PaymentAttemptServiceTest {
 
     @Mock
     private CustomerInternalApi customerInternalApi;
+
+    @Mock
+    private ProductInternalApi productInternalApi;
 
     @InjectMocks
     private PaymentAttemptService paymentAttemptService;
@@ -153,12 +160,15 @@ public class PaymentAttemptServiceTest {
                 PaymentProvider.NONE, DEFAULT_IDEMPOTENCY_KEY);
         when(orderInternalApi.getOrderDataForPayment(orderId))
                 .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
+        var orderItemResponse = createOrderItemResponse("SKU-RESERVE", 2L);
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId)).thenReturn(List.of(orderItemResponse));
         mockPaymentRepositorySave();
 
         PaymentAttemptResponse result = paymentAttemptService.createPaymentAttempt(orderId, paymentRequest);
 
         verify(paymentAttemptRepository).save(paymentCaptor.capture());
         verify(orderInternalApi).markAsPaymentInProgress(orderId);
+        verify(productInternalApi).decreaseProductStock("SKU-RESERVE", 2L);
         assertEquals(paymentCaptor.getValue().getId(), result.id());
         assertEquals(orderId, result.orderId());
         assertEquals(DEFAULT_IDEMPOTENCY_KEY, result.idempotencyKey());
@@ -194,7 +204,7 @@ public class PaymentAttemptServiceTest {
         assertEquals(expectedPayment.getId(), result.id());
         verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
     }
 
     @Test
@@ -214,7 +224,7 @@ public class PaymentAttemptServiceTest {
         assertEquals(otherOrderId, existingPayment.getOrderId());
         assertEquals(PaymentStatus.CREATED, existingPayment.getStatus());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
     }
 
     /*
@@ -533,7 +543,7 @@ public class PaymentAttemptServiceTest {
         assertEquals(payment.getId(), result.id());
         assertEquals(PaymentStatus.SUCCEEDED, result.status());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
     }
 
     @Test
@@ -547,7 +557,7 @@ public class PaymentAttemptServiceTest {
         assertEquals(payment.getId(), result.id());
         assertEquals(PaymentStatus.FAILED, result.status());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
     }
 
     @Test
@@ -607,13 +617,60 @@ public class PaymentAttemptServiceTest {
                 new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY));
 
         assertEquals(payment.getId(), result.id());
-        verifyNoInteractions(customerInternalApi, orderInternalApi);
+        verifyNoInteractions(customerInternalApi, orderInternalApi, productInternalApi);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
     }
 
     private void mockCustomer(CustomerStatus status) {
         when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
                 .id(customerId).name("Test Customer").email("customer@example.com").status(status).build());
+    }
+
+    @Test
+    void createPaymentAttempt_WhenOrderHasMultipleProducts_ShouldReserveEveryItemBeforeSaving() {
+        mockCustomer(CustomerStatus.ACTIVE);
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId)).thenReturn(List.of(
+                createOrderItemResponse("SKU-FIRST", 2L), createOrderItemResponse("SKU-SECOND", 3L)));
+        mockPaymentRepositorySave();
+
+        var createdPaymentResponse = paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest);
+
+        InOrder reservationSequence = inOrder(orderInternalApi, productInternalApi, paymentAttemptRepository);
+        reservationSequence.verify(orderInternalApi).markAsPaymentInProgress(orderId);
+        reservationSequence.verify(orderInternalApi).getAllOrderItemsFromOrder(orderId);
+        reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
+        reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
+        reservationSequence.verify(paymentAttemptRepository).save(any(PaymentAttemptEntity.class));
+        assertEquals(PaymentStatus.CREATED, createdPaymentResponse.status());
+    }
+
+    @Test
+    void createPaymentAttempt_WhenReservationFails_ShouldPropagateFailureWithoutSaving() {
+        mockCustomer(CustomerStatus.ACTIVE);
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId)).thenReturn(List.of(
+                createOrderItemResponse("SKU-FIRST", 2L), createOrderItemResponse("SKU-SECOND", 3L)));
+        doNothing().when(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
+        doThrow(new InsufficientStockException()).when(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
+
+        var reservationException = assertThrows(InsufficientStockException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
+
+        assertEquals("Insufficient stock.", reservationException.getMessage());
+        verify(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
+        verify(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    private OrderItemResponse createOrderItemResponse(String sku, long quantity) {
+        return OrderItemResponse.builder().id(UUID.randomUUID()).orderId(orderId)
+                .sku(sku).quantity(quantity).unitPrice(new BigDecimal("10.00"))
+                .lineTotal(new BigDecimal("10.00").multiply(BigDecimal.valueOf(quantity))).build();
     }
 
     private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(UUID orderId,

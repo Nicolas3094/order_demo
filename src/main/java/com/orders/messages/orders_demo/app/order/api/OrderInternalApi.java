@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.app.order.api;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
@@ -61,5 +62,7 @@ public interface OrderInternalApi {
      * @throws OrderNotFoundException if the order does not exist.
      */
     OrderData getOrderDataForPayment(UUID orderId);
+
+    List<OrderItemResponse> getAllOrderItemsFromOrder(UUID orderId);
 
 }

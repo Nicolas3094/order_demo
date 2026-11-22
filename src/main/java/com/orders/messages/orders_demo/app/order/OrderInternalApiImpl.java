@@ -1,5 +1,6 @@
 package com.orders.messages.orders_demo.app.order;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -7,8 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
+import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
+import com.orders.messages.orders_demo.app.order.internal.OrderItemMapper;
 import com.orders.messages.orders_demo.app.order.internal.OrderMapper;
 import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
 import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
@@ -91,6 +94,12 @@ public class OrderInternalApiImpl implements OrderInternalApi {
         if (!orderRepository.existsById(orderId)) {
             throw new OrderNotFoundException(orderId);
         }
+    }
+
+    public List<OrderItemResponse> getAllOrderItemsFromOrder(UUID orderId) {
+        return getOrder(orderId).getItems().stream()
+                .map(OrderItemMapper::toResponse)
+                .toList();
     }
 
     private OrderEntity getOrder(UUID id) {

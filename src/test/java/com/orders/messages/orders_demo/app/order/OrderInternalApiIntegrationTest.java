@@ -270,6 +270,7 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
         return Stream.of(
                 api -> api.markAsPaymentInProgress(missingId),
                 api -> api.markAsPending(missingId),
+                api -> api.getAllOrderItemsFromOrder(missingId),
                 api -> api.markAsPaid(missingId),
                 api -> api.getOrderById(missingId),
                 api -> api.validateOrderExists(missingId),
@@ -284,6 +285,33 @@ public class OrderInternalApiIntegrationTest extends PostgresContainer {
                 Arguments.of(OrderStatus.EXPIRED, OrderAlreadyExpiredException.class),
                 Arguments.of(OrderStatus.PAYMENT_IN_PROGRESS, InvalidOrderStateException.class),
                 Arguments.of(OrderStatus.REFUNDED, InvalidOrderStateException.class));
+    }
+
+    @Test
+    void shouldReturnPersistedOrderItemsInsideCallerTransactionWithoutChangingOrder() {
+        UUID orderId = persistOrder(OrderStatus.PENDING_PAYMENT);
+        Long initialVersion = readOrder(orderId).getVersion();
+
+        var orderItemResponses = transactionTemplate.execute(status -> orderInternalApi.getAllOrderItemsFromOrder(orderId));
+
+        assertThat(orderItemResponses).hasSize(1);
+        var orderItemResponse = orderItemResponses.get(0);
+        assertThat(orderItemResponse.id()).isNotNull();
+        assertThat(orderItemResponse.orderId()).isEqualTo(orderId);
+        assertThat(orderItemResponse.quantity()).isEqualTo(1L);
+        assertThat(orderItemResponse.unitPrice()).isEqualByComparingTo("1250.50");
+        assertThat(orderItemResponse.lineTotal()).isEqualByComparingTo("1250.50");
+        assertThat(readOrder(orderId).getVersion()).isEqualTo(initialVersion);
+    }
+
+    @Test
+    void shouldReturnPersistedOrderItemsWithoutCallerTransaction() {
+        UUID orderId = persistOrder(OrderStatus.PENDING_PAYMENT);
+
+        var orderItemResponses = orderInternalApi.getAllOrderItemsFromOrder(orderId);
+
+        assertThat(orderItemResponses).hasSize(1);
+        assertThat(orderItemResponses.get(0).orderId()).isEqualTo(orderId);
     }
 
     private UUID persistOrder(OrderStatus state) {
