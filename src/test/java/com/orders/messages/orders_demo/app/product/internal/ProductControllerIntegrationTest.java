@@ -11,6 +11,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
@@ -133,6 +135,40 @@ class ProductControllerIntegrationTest extends PostgresContainer {
                 .andExpect(jsonPath("$.quantity").value(13));
 
         assertThat(readProduct(id).getQuantity()).isEqualTo(13L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void shouldRejectNonPositiveIncreaseThroughHttpWith400WithoutChangingStock(long requestedQuantity)
+            throws Exception {
+        UUID productId = persistProduct(true);
+
+        mockMvc.perform(patch(BASE_PATH + "/{id}/increase-stock", productId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new IncreaseStockRequest(requestedQuantity))))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Stock change must be a positive value."));
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldRejectIncreasingMissingProductThroughHttpWith404WithoutChangingOtherStock() throws Exception {
+        UUID existingProductId = persistProduct(true);
+        UUID missingProductId = UUID.randomUUID();
+
+        mockMvc.perform(patch(BASE_PATH + "/{id}/increase-stock", missingProductId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new IncreaseStockRequest(3L))))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Product could not be found."));
+
+        assertThat(productRepository.findById(missingProductId)).isEmpty();
+        assertThat(readProduct(existingProductId).getQuantity()).isEqualTo(10L);
     }
 
     @Test

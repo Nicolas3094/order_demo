@@ -6,8 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 
@@ -87,21 +85,6 @@ public class ProductEntityTest {
         product.changeCurrency(Currency.USD);
 
         assertEquals(Currency.USD, product.getCurrency());
-    }
-
-    @Test
-    public void increaseStock_WhenQuantityIsPositive_ShouldIncreaseStock() {
-        product.increaseStock(10);
-
-        assertEquals(20L, product.getQuantity());
-    }
-
-    @Test
-    public void increaseStock_WhenQuantityIsZero_ShouldThrowIllegalArgumentException() {
-        IllegalArgumentException result = assertThrows(IllegalArgumentException.class,
-                () -> product.increaseStock(0));
-
-        assertEquals("Quantity must be positive.", result.getMessage());
     }
 
     @Test

@@ -62,19 +62,44 @@ public class ProductInternalApiImplTest {
     }
 
     @Test
-    public void increaceProductStock_WhenProductExists_ShouldIncreaseStockAndSaveProduct() {
+    void increaseProductStock_WhenProductExists_ShouldUpdateAndRefreshWithoutSaving() {
         ProductEntity product = createProductWithStock(5L);
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+        when(productRepository.increaseStockIfAvailable(product.getId(), 3L)).thenReturn(1);
 
         productInternalApi.increaseProductStock(DEFAULT_SKU, 3L);
 
-        verify(productRepository).findBySku(DEFAULT_SKU);
-        verify(productRepository).save(product);
-        assertEquals(8L, product.getQuantity());
+        verify(productRepository).increaseStockIfAvailable(product.getId(), 3L);
+        verify(entityManager).refresh(product);
+        verify(productRepository, never()).save(any(ProductEntity.class));
     }
 
     @Test
-    public void increaceProductStock_WhenProductDoesNotExist_ShouldThrowProductNotFoundException() {
+    void increaseProductStock_WhenUpdateAffectsNoRows_ShouldRejectWithoutRefreshing() {
+        ProductEntity product = createProductWithStock(5L);
+        when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+        when(productRepository.increaseStockIfAvailable(product.getId(), 3L)).thenReturn(0);
+
+        ProductNotFoundException productNotFoundException = assertThrows(ProductNotFoundException.class,
+                () -> productInternalApi.increaseProductStock(DEFAULT_SKU, 3L));
+
+        assertEquals("Product could not be found.", productNotFoundException.getMessage());
+        verifyNoInteractions(entityManager);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void increaseProductStock_WhenQuantityIsNotPositive_ShouldRejectWithoutUpdating(long quantity) {
+        IllegalArgumentException invalidQuantityException = assertThrows(IllegalArgumentException.class,
+                () -> productInternalApi.increaseProductStock(DEFAULT_SKU, quantity));
+
+        assertEquals("Quantity must be positive.", invalidQuantityException.getMessage());
+        verifyNoInteractions(productRepository, entityManager);
+    }
+
+    @Test
+    public void increaseProductStock_WhenProductDoesNotExist_ShouldThrowProductNotFoundException() {
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.empty());
 
         assertThrows(ProductNotFoundException.class,

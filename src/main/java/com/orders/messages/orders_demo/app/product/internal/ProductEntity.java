@@ -131,18 +131,6 @@ public class ProductEntity {
         this.currency = Objects.requireNonNull(currency, "Currency must not be null.");
     }
 
-    /**
-     * Increases the available stock for this product.
-     *
-     * @param quantity the quantity to add to stock.
-     * @throws IllegalArgumentException if the quantity is zero or negative.
-     */
-    public void increaseStock(long quantity) {
-        validatePositiveQuantity(quantity);
-
-        this.quantity += quantity;
-    }
-
     public static final class Builder {
         private UUID id;
         private String sku;
@@ -249,12 +237,6 @@ public class ProductEntity {
         if (!(obj instanceof ProductEntity other))
             return false;
         return Objects.equals(id, other.id);
-    }
-
-    private static void validatePositiveQuantity(long quantity) {
-        if (quantity <= 0) {
-            throw new IllegalArgumentException("Quantity must be positive.");
-        }
     }
 
     private static boolean notBlank(String str) {

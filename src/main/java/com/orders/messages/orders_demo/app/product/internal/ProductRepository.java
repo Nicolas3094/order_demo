@@ -25,4 +25,15 @@ public interface ProductRepository extends JpaRepository<ProductEntity, UUID> {
             @Param("productId") UUID productId,
             @Param("requestedQuantity") long requestedQuantity);
 
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            UPDATE product
+            SET quantity = quantity + :requestedQuantity
+            WHERE id = :productId
+                AND :requestedQuantity > 0
+            """, nativeQuery = true)
+    int increaseStockIfAvailable(
+            @Param("productId") UUID productId,
+            @Param("requestedQuantity") long requestedQuantity);
+
 }

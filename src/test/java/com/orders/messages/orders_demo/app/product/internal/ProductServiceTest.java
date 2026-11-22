@@ -176,16 +176,53 @@ public class ProductServiceTest {
     }
 
     @Test
-    public void increaseStock_WhenProductFound_ShouldIncreaseStock() {
+    void increaseStock_WhenProductFound_ShouldReturnRefreshedStockWithoutSaving() {
         ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-        when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(productRepository.increaseStockIfAvailable(productId, 20L)).thenReturn(1);
+        doAnswer(invocation -> {
+            ReflectionTestUtils.setField(product, "quantity", 30L);
+            return null;
+        }).when(entityManager).refresh(product);
 
-        ProductResponse result = productService.increaseStock(productId, 20L);
+        ProductResponse productResponse = productService.increaseStock(productId, 20L);
 
-        verify(productRepository).save(productCaptor.capture());
-        assertEquals(result.id(), productCaptor.getValue().getId());
-        assertEquals(DEFAULT_QUANTITY + 20L, result.quantity());
+        assertEquals(productId, productResponse.id());
+        assertEquals(30L, productResponse.quantity());
+        verify(productRepository).increaseStockIfAvailable(productId, 20L);
+        verify(entityManager).refresh(product);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+    }
+
+    @Test
+    void increaseStock_WhenUpdateAffectsNoRows_ShouldRejectWithoutRefreshing() {
+        ProductEntity product = createProduct(productId);
+        when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+        when(productRepository.increaseStockIfAvailable(productId, 2L)).thenReturn(0);
+
+        ProductNotFoundException productNotFoundException = assertThrows(ProductNotFoundException.class,
+                () -> productService.increaseStock(productId, 2L));
+
+        assertEquals(PRODUCT_NOT_FOUND_MESSAGE, productNotFoundException.getMessage());
+        verifyNoInteractions(entityManager);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void increaseStock_WhenQuantityIsNotPositive_ShouldRejectWithoutUpdating(long quantity) {
+        IllegalArgumentException invalidQuantityException = assertThrows(IllegalArgumentException.class,
+                () -> productService.increaseStock(productId, quantity));
+
+        assertEquals("Quantity must be positive.", invalidQuantityException.getMessage());
+        verifyNoInteractions(productRepository, entityManager);
+    }
+
+    @Test
+    void increaseStock_WhenQuantityIsNull_ShouldRejectWithoutUpdating() {
+        assertThrows(IllegalArgumentException.class, () -> productService.increaseStock(productId, null));
+
+        verifyNoInteractions(productRepository, entityManager);
     }
 
     @Test

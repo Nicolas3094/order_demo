@@ -4,6 +4,11 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,6 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.orders.messages.orders_demo.app.PostgresContainer;
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.product.api.CreateProductRequest;
+import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.*;
 
@@ -25,6 +31,8 @@ class ProductServiceIntegrationTest extends PostgresContainer {
     private ProductService productService;
     @Autowired
     private ProductRepository productRepository;
+    @Autowired
+    private ProductInternalApi productInternalApi;
     @Autowired
     private TransactionTemplate transactionTemplate;
 
@@ -169,6 +177,142 @@ class ProductServiceIntegrationTest extends PostgresContainer {
         assertThat(readProduct(id).getQuantity()).isEqualTo(13L);
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void shouldRejectNonPositiveStockIncreaseWithoutChangingProduct(long requestedQuantity) {
+        UUID productId = persistProduct(true);
+
+        assertThatThrownBy(() -> productService.increaseStock(productId, requestedQuantity))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Quantity must be positive.");
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldIncreaseStockThroughInternalApiWithoutCallerTransaction() {
+        UUID productId = persistProduct(true);
+        String productSku = readProduct(productId).getSku();
+
+        productInternalApi.increaseProductStock(productSku, 3L);
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(13L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void shouldRejectNonPositiveIncreaseThroughInternalApiWithoutChangingStock(long requestedQuantity) {
+        UUID productId = persistProduct(true);
+        String productSku = readProduct(productId).getSku();
+
+        assertThatThrownBy(() -> productInternalApi.increaseProductStock(productSku, requestedQuantity))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Quantity must be positive.");
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldRejectIncreasingMissingSkuWithoutChangingOtherProducts() {
+        UUID productId = persistProduct(true);
+        String missingProductSku = UUID.randomUUID().toString();
+
+        assertThatThrownBy(() -> productInternalApi.increaseProductStock(missingProductSku, 3L))
+                .isInstanceOf(ProductNotFoundException.class)
+                .hasMessage("Product could not be found.");
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldReplenishExhaustedStockThroughInternalApi() {
+        UUID productId = persistProduct(true);
+        String productSku = readProduct(productId).getSku();
+        productService.decreaseStock(productId, 10L);
+        assertThat(readProduct(productId).getQuantity()).isZero();
+
+        productInternalApi.increaseProductStock(productSku, 3L);
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(3L);
+    }
+
+    @Test
+    void shouldPreservePendingProductChangesWhenIncreasingStock() {
+        UUID productId = persistProduct(true);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            ProductEntity managedProduct = productRepository.findById(productId).orElseThrow();
+            managedProduct.changeName("Renamed product");
+
+            var increasedProductResponse = productService.increaseStock(productId, 3L);
+
+            assertThat(increasedProductResponse.name()).isEqualTo("Renamed product");
+            assertThat(increasedProductResponse.quantity()).isEqualTo(13L);
+            entityManager.clear();
+            ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
+            assertThat(persistedProduct.getName()).isEqualTo("Renamed product");
+            assertThat(persistedProduct.getQuantity()).isEqualTo(13L);
+        });
+    }
+
+    @Test
+    void shouldKeepManagedProductSynchronizedAfterStockIncreasesThroughBothServices() {
+        UUID productId = persistProduct(true);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            ProductEntity managedProduct = productRepository.findById(productId).orElseThrow();
+
+            var increasedProductResponse = productService.increaseStock(productId, 2L);
+            productInternalApi.increaseProductStock(managedProduct.getSku(), 3L);
+
+            assertThat(increasedProductResponse.quantity()).isEqualTo(12L);
+            assertThat(managedProduct.getQuantity()).isEqualTo(15L);
+            assertThat(productInternalApi.getProductBySku(managedProduct.getSku()).quantity()).isEqualTo(15L);
+        });
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(15L);
+    }
+
+    @Test
+    void shouldRollBackStockIncreasesWhenCallerTransactionFails() {
+        UUID productId = persistProduct(true);
+        String productSku = readProduct(productId).getSku();
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            productService.increaseStock(productId, 2L);
+            productInternalApi.increaseProductStock(productSku, 3L);
+            entityManager.clear();
+            assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(15L);
+            throw new IllegalStateException("Caller failed.");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("Caller failed.");
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldPreserveBothStockIncreasesWhenTheyRunConcurrently() throws Exception {
+        UUID productId = persistProduct(true);
+        String productSku = readProduct(productId).getSku();
+
+        runConcurrentStockChanges(productId,
+                () -> productService.increaseStock(productId, 2L),
+                () -> productInternalApi.increaseProductStock(productSku, 3L));
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(15L);
+    }
+
+    @Test
+    void shouldPreserveStockIncreaseAndDecreaseWhenTheyRunConcurrently() throws Exception {
+        UUID productId = persistProduct(true);
+        String productSku = readProduct(productId).getSku();
+
+        runConcurrentStockChanges(productId,
+                () -> productInternalApi.increaseProductStock(productSku, 2L),
+                () -> productService.decreaseStock(productId, 3L));
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(9L);
+    }
+
     @Test
     void shouldDecreaseStockAndPersistQuantity() {
         UUID id = persistProduct(true);
@@ -304,6 +448,47 @@ class ProductServiceIntegrationTest extends PostgresContainer {
     private CreateProductRequest request(String sku) {
         return new CreateProductRequest(sku, "Test Product", "Test description",
                 new BigDecimal("123.50"), Currency.MXN, true, 10L);
+    }
+
+    private void runConcurrentStockChanges(UUID productId, Runnable firstStockChange, Runnable secondStockChange)
+            throws Exception {
+        var productReadBarrier = new CyclicBarrier(2);
+        var stockChangeExecutor = Executors.newFixedThreadPool(2);
+
+        try {
+            var firstStockChangeFuture = stockChangeExecutor.submit(
+                    () -> changeStockAfterBothProductReads(productId, firstStockChange, productReadBarrier));
+            var secondStockChangeFuture = stockChangeExecutor.submit(
+                    () -> changeStockAfterBothProductReads(productId, secondStockChange, productReadBarrier));
+
+            firstStockChangeFuture.get(20, TimeUnit.SECONDS);
+            secondStockChangeFuture.get(20, TimeUnit.SECONDS);
+        } finally {
+            stockChangeExecutor.shutdownNow();
+            assertThat(stockChangeExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private void changeStockAfterBothProductReads(UUID productId, Runnable stockChange, CyclicBarrier productReadBarrier) {
+        transactionTemplate.executeWithoutResult(status -> {
+            ProductEntity initialProduct = productRepository.findById(productId).orElseThrow();
+            assertThat(initialProduct.getQuantity()).isEqualTo(10L);
+
+            // Ambos hilos cargan el mismo stock antes de intentar modificarlo.
+            awaitProductReadBarrier(productReadBarrier);
+            stockChange.run();
+        });
+    }
+
+    private void awaitProductReadBarrier(CyclicBarrier productReadBarrier) {
+        try {
+            productReadBarrier.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Stock change interrupted", interruptedException);
+        } catch (BrokenBarrierException | TimeoutException synchronizationException) {
+            throw new IllegalStateException("Could not synchronize product reads", synchronizationException);
+        }
     }
 
     private UUID persistProduct(boolean active) {

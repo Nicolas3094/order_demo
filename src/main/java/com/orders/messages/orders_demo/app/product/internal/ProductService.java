@@ -89,7 +89,21 @@ public class ProductService {
      */
     @Transactional
     public ProductResponse increaseStock(UUID productId, Long quantity) {
-        return updateProduct(productId, product -> product.increaseStock(quantity));
+
+        if (quantity == null || quantity <= 0) {
+            throw new IllegalArgumentException("Quantity must be positive.");
+        }
+
+        ProductEntity product = findProduct(productId);
+
+        int updatedRows = productRepository.increaseStockIfAvailable(productId, quantity);
+        if (updatedRows == 0) {
+            throw new ProductNotFoundException();
+        }
+
+        entityManager.refresh(product);
+
+        return ProductMapper.toResponse(product);
     }
 
     /**

@@ -95,8 +95,10 @@ class ProductRepositoryIntegrationTest extends PostgresContainer {
 
         product.changePrice(new BigDecimal("200.00"));
         product.changeCurrency(Currency.USD);
-        product.increaseStock(3L);
         productRepository.saveAndFlush(product);
+        entityManager.clear();
+
+        assertThat(productRepository.increaseStockIfAvailable(id, 3L)).isEqualTo(1);
         entityManager.clear();
 
         ProductEntity updated = productRepository.findById(id).orElseThrow();
@@ -179,6 +181,47 @@ class ProductRepositoryIntegrationTest extends PostgresContainer {
     @Test
     void shouldReportNoUpdatedRowsForMissingProduct() {
         assertThat(productRepository.decreaseStockIfAvailable(UUID.randomUUID(), 1L)).isZero();
+    }
+
+    @Test
+    void shouldAtomicallyIncreaseStockAndReportOneUpdatedRow() {
+        UUID productId = productRepository.saveAndFlush(createProduct()).getId();
+
+        int updatedRows = productRepository.increaseStockIfAvailable(productId, 3L);
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(13L);
+    }
+
+    @Test
+    void shouldIncreaseOnlyTheRequestedProductStock() {
+        UUID requestedProductId = productRepository.saveAndFlush(createProduct()).getId();
+        UUID otherProductId = productRepository.saveAndFlush(createProduct()).getId();
+
+        int updatedRows = productRepository.increaseStockIfAvailable(requestedProductId, 3L);
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        assertThat(productRepository.findById(requestedProductId).orElseThrow().getQuantity()).isEqualTo(13L);
+        assertThat(productRepository.findById(otherProductId).orElseThrow().getQuantity()).isEqualTo(10L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void shouldLeaveStockUnchangedWhenIncreaseQuantityIsNotPositive(long requestedQuantity) {
+        UUID productId = productRepository.saveAndFlush(createProduct()).getId();
+
+        int updatedRows = productRepository.increaseStockIfAvailable(productId, requestedQuantity);
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldReportNoIncreasedRowsForMissingProduct() {
+        assertThat(productRepository.increaseStockIfAvailable(UUID.randomUUID(), 3L)).isZero();
     }
 
     private ProductEntity createProduct() {

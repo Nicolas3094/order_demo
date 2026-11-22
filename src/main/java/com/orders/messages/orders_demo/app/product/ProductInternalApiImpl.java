@@ -27,12 +27,20 @@ public class ProductInternalApiImpl implements ProductInternalApi {
     }
 
     @Override
+    @Transactional
     public void increaseProductStock(String sku, long quantity) {
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("Quantity must be positive.");
+        }
+
         ProductEntity product = productRepository.findBySku(sku).orElseThrow(ProductNotFoundException::new);
 
-        product.increaseStock(quantity);
+        int updatedRows = productRepository.increaseStockIfAvailable(product.getId(), quantity);
+        if (updatedRows == 0) {
+            throw new ProductNotFoundException();
+        }
 
-        productRepository.save(product);
+        entityManager.refresh(product);
     }
 
     @Override
