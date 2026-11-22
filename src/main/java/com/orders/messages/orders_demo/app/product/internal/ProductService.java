@@ -5,23 +5,28 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
+import jakarta.persistence.EntityManager;
+
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.product.api.CreateProductRequest;
 import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
-
-import jakarta.transaction.Transactional;
 
 @Service
 public class ProductService {
 
     private final ProductRepository productRepository;
 
-    public ProductService(ProductRepository productRepository) {
+    private final EntityManager entityManager;
+
+    public ProductService(ProductRepository productRepository, EntityManager entityManager) {
         this.productRepository = productRepository;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -98,7 +103,19 @@ public class ProductService {
      */
     @Transactional
     public ProductResponse decreaseStock(UUID productId, Long quantity) {
-        return updateProduct(productId, product -> product.decreaseStock(quantity));
+        if (quantity == null || quantity <= 0) {
+            throw new IllegalArgumentException("Quantity must be positive.");
+        }
+
+        ProductEntity product = findProduct(productId);
+        int updatedRows = productRepository.decreaseStockIfAvailable(productId, quantity);
+        if (updatedRows == 0) {
+            throw new InsufficientStockException();
+        }
+
+        // Bulk updates bypass the persistence context; reload only this product.
+        entityManager.refresh(product);
+        return ProductMapper.toResponse(product);
     }
 
     /**

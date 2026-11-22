@@ -5,8 +5,6 @@ import java.util.Objects;
 import java.util.UUID;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
-import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
-import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -143,41 +141,6 @@ public class ProductEntity {
         validatePositiveQuantity(quantity);
 
         this.quantity += quantity;
-    }
-
-    /**
-     * Decreases the available stock for this product.
-     *
-     * @param quantity the quantity to subtract from stock.
-     * @throws IllegalArgumentException   if the quantity is zero or negative.
-     * @throws InsufficientStockException if there is not enough stock.
-     */
-    public void decreaseStock(long quantity) {
-        validatePositiveQuantity(quantity);
-
-        if (this.quantity < quantity) {
-            throw new InsufficientStockException();
-        }
-
-        this.quantity -= quantity;
-    }
-
-    /**
-     * Checks whether the product has enough stock for a requested quantity.
-     *
-     * @param quantity the quantity to validate.
-     * @return true when stock is sufficient.
-     * @throws IllegalArgumentException if the quantity is zero or negative.
-     * @throws InvalidProductException  if there is not enough stock.
-     */
-    public boolean hasEnoughStock(long quantity) {
-        validatePositiveQuantity(quantity);
-
-        if (this.quantity < quantity) {
-            throw new InvalidProductException("Product with SKU " + sku + " does not have enough stock.");
-        }
-
-        return true;
     }
 
     public static final class Builder {

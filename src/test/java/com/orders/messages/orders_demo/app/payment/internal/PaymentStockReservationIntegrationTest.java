@@ -4,6 +4,9 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,6 +27,7 @@ import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptReque
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
 
 class PaymentStockReservationIntegrationTest extends PostgresContainer {
     @Autowired
@@ -195,7 +199,8 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
     void shouldRollBackReservationAndOrderStateWhenSavingPaymentFails() {
         UUID productId = persistProduct("SKU-SAVE-FAILURE", 5L);
         UUID orderId = persistOrder("SKU-SAVE-FAILURE", 2L);
-        // The database column is limited to 64 characters; force failure after reservation.
+        // The database column is limited to 64 characters; force failure after
+        // reservation.
         var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, "K".repeat(65));
         Long initialOrderVersion = orderRepository.findById(orderId).orElseThrow().getVersion();
 
@@ -207,6 +212,103 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
         var persistedOrder = orderRepository.findById(orderId).orElseThrow();
         assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(persistedOrder.getVersion()).isEqualTo(initialOrderVersion);
+    }
+
+    @Test
+    void shouldAllowOnlyOneCheckoutWhenTwoOrdersCompeteForInsufficientSharedStock() throws Exception {
+        // Un producto con tres unidades y dos carritos que quieren dos cada uno.
+        UUID productId = persistProduct("SKU-CONCURRENT", 3L);
+        UUID firstOrderId = persistOrder("SKU-CONCURRENT", 2L);
+        UUID secondOrderId = persistOrder("SKU-CONCURRENT", 2L);
+        var productReadBarrier = new CyclicBarrier(2);
+        var checkoutExecutor = Executors.newFixedThreadPool(2);
+
+        try {
+            // Cada tarea simula un cliente distinto intentando pagar.
+            var firstCheckoutFuture = checkoutExecutor.submit(
+                    () -> tryCreatingPayment(productId, firstOrderId, productReadBarrier));
+            var secondCheckoutFuture = checkoutExecutor.submit(
+                    () -> tryCreatingPayment(productId, secondOrderId, productReadBarrier));
+
+            boolean firstCheckoutSucceeded = firstCheckoutFuture.get(20, TimeUnit.SECONDS);
+            boolean secondCheckoutSucceeded = secondCheckoutFuture.get(20, TimeUnit.SECONDS);
+
+            // No importa cuál ganó: una compra debe funcionar y la otra debe rechazarse.
+            assertThat(List.of(firstCheckoutSucceeded, secondCheckoutSucceeded))
+                    .containsExactlyInAnyOrder(true, false);
+            assertThat(readAvailableStock(productId)).isEqualTo(1L);
+
+            var persistedOrders = orderRepository.findAllById(List.of(firstOrderId, secondOrderId));
+            assertThat(persistedOrders).extracting(OrderEntity::getStatus)
+                    .containsExactlyInAnyOrder(OrderStatus.PAYMENT_IN_PROGRESS, OrderStatus.PENDING_PAYMENT);
+
+            var persistedPayments = new ArrayList<>(paymentRepository.findByOrderId(firstOrderId));
+            persistedPayments.addAll(paymentRepository.findByOrderId(secondOrderId));
+            assertThat(persistedPayments).hasSize(1);
+            var persistedPayment = persistedPayments.get(0);
+            assertThat(persistedPayment.getAmount()).isEqualByComparingTo("200.00");
+            assertThat(orderRepository.findById(persistedPayment.getOrderId()).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        } finally {
+            checkoutExecutor.shutdownNow();
+            assertThat(checkoutExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void shouldAllowBothCheckoutsWhenSharedStockIsEnough() throws Exception {
+        UUID productId = persistProduct("SKU-CONCURRENT-ENOUGH", 4L);
+        UUID firstOrderId = persistOrder("SKU-CONCURRENT-ENOUGH", 2L);
+        UUID secondOrderId = persistOrder("SKU-CONCURRENT-ENOUGH", 2L);
+        var productReadBarrier = new CyclicBarrier(2);
+        var checkoutExecutor = Executors.newFixedThreadPool(2);
+
+        try {
+            var firstCheckoutFuture = checkoutExecutor.submit(
+                    () -> tryCreatingPayment(productId, firstOrderId, productReadBarrier));
+            var secondCheckoutFuture = checkoutExecutor.submit(
+                    () -> tryCreatingPayment(productId, secondOrderId, productReadBarrier));
+
+            assertThat(firstCheckoutFuture.get(20, TimeUnit.SECONDS)).isTrue();
+            assertThat(secondCheckoutFuture.get(20, TimeUnit.SECONDS)).isTrue();
+            assertThat(readAvailableStock(productId)).isZero();
+            assertThat(paymentRepository.findByOrderId(firstOrderId)).hasSize(1);
+            assertThat(paymentRepository.findByOrderId(secondOrderId)).hasSize(1);
+            assertThat(orderRepository.findAllById(List.of(firstOrderId, secondOrderId)))
+                    .extracting(OrderEntity::getStatus)
+                    .containsExactly(OrderStatus.PAYMENT_IN_PROGRESS, OrderStatus.PAYMENT_IN_PROGRESS);
+        } finally {
+            checkoutExecutor.shutdownNow();
+            assertThat(checkoutExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private boolean tryCreatingPayment(UUID productId, UUID orderId, CyclicBarrier productReadBarrier) {
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                var initialProduct = productRepository.findById(productId).orElseThrow();
+                assertThat(initialProduct.getQuantity()).isGreaterThanOrEqualTo(2L);
+
+                // Ninguno continúa hasta que ambos hayan leído las existencias iniciales.
+                awaitProductReadBarrier(productReadBarrier);
+
+                paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+            });
+            return true;
+        } catch (InsufficientStockException reservationException) {
+            return false;
+        }
+    }
+
+    private void awaitProductReadBarrier(CyclicBarrier productReadBarrier) {
+        try {
+            productReadBarrier.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Concurrent checkout interrupted", interruptedException);
+        } catch (Exception synchronizationException) {
+            throw new IllegalStateException("Could not synchronize product reads", synchronizationException);
+        }
     }
 
     private UUID persistReservedPayment(UUID orderId) {

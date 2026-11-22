@@ -6,6 +6,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
@@ -102,8 +104,7 @@ class ProductRepositoryIntegrationTest extends PostgresContainer {
         assertThat(updated.getCurrency()).isEqualTo(Currency.USD);
         assertThat(updated.getQuantity()).isEqualTo(13L);
 
-        updated.decreaseStock(5L);
-        productRepository.saveAndFlush(updated);
+        productRepository.decreaseStockIfAvailable(id, 5L);
         entityManager.clear();
 
         assertThat(productRepository.findById(id).orElseThrow().getQuantity()).isEqualTo(8L);
@@ -148,6 +149,36 @@ class ProductRepositoryIntegrationTest extends PostgresContainer {
                 createProduct(UUID.randomUUID().toString(), "D".repeat(256))))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasStackTraceContaining("value too long for type character varying(255)");
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 3, 10 })
+    void shouldAtomicallyDecreaseStockAndReportOneUpdatedRow(long requestedQuantity) {
+        UUID productId = productRepository.saveAndFlush(createProduct()).getId();
+
+        int updatedRows = productRepository.decreaseStockIfAvailable(productId, requestedQuantity);
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        assertThat(productRepository.findById(productId).orElseThrow().getQuantity())
+                .isEqualTo(10L - requestedQuantity);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 11, 0, -1 })
+    void shouldLeaveStockUnchangedWhenDecreaseCannotBeApplied(long requestedQuantity) {
+        UUID productId = productRepository.saveAndFlush(createProduct()).getId();
+
+        int updatedRows = productRepository.decreaseStockIfAvailable(productId, requestedQuantity);
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldReportNoUpdatedRowsForMissingProduct() {
+        assertThat(productRepository.decreaseStockIfAvailable(UUID.randomUUID(), 1L)).isZero();
     }
 
     private ProductEntity createProduct() {

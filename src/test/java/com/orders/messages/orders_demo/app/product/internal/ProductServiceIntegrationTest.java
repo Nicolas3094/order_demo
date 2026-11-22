@@ -9,6 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -175,6 +177,36 @@ class ProductServiceIntegrationTest extends PostgresContainer {
 
         assertThat(result.quantity()).isEqualTo(7L);
         assertThat(readProduct(id).getQuantity()).isEqualTo(7L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void shouldRejectNonPositiveStockDecreaseWithoutChangingProduct(long requestedQuantity) {
+        UUID productId = persistProduct(true);
+
+        assertThatThrownBy(() -> productService.decreaseStock(productId, requestedQuantity))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Quantity must be positive.");
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(10L);
+    }
+
+    @Test
+    void shouldKeepManagedProductSynchronizedAfterConsecutiveStockDecreases() {
+        UUID productId = persistProduct(true);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            ProductEntity managedProduct = productRepository.findById(productId).orElseThrow();
+
+            var firstProductResponse = productService.decreaseStock(productId, 3L);
+            var secondProductResponse = productService.decreaseStock(productId, 2L);
+
+            assertThat(firstProductResponse.quantity()).isEqualTo(7L);
+            assertThat(secondProductResponse.quantity()).isEqualTo(5L);
+            assertThat(managedProduct.getQuantity()).isEqualTo(5L);
+        });
+
+        assertThat(readProduct(productId).getQuantity()).isEqualTo(5L);
     }
 
     @Test

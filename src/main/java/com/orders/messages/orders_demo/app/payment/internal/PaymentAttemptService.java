@@ -105,9 +105,9 @@ public class PaymentAttemptService {
 
         validateCustomerCanStartPayment(orderData.customerId());
 
-        orderInternalApi.markAsPaymentInProgress(orderId);
-
         decreaseStock(orderId);
+
+        orderInternalApi.markAsPaymentInProgress(orderId);
 
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository
                 .save(PaymentAttemptMapper.toEntity(

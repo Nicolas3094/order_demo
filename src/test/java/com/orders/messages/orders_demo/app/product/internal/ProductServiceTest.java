@@ -1,5 +1,13 @@
 package com.orders.messages.orders_demo.app.product.internal;
 
+import jakarta.persistence.EntityManager;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verifyNoInteractions;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +51,9 @@ public class ProductServiceTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private EntityManager entityManager;
 
     @InjectMocks
     private ProductService productService;
@@ -188,16 +199,42 @@ public class ProductServiceTest {
     }
 
     @Test
-    public void decreaseStock_WhenProductFound_ShouldDecreaseStock() {
+    void decreaseStock_WhenProductFound_ShouldReturnRefreshedStockWithoutSaving() {
         ProductEntity product = createProduct(productId);
         when(productRepository.findById(productId)).thenReturn(Optional.of(product));
-        when(productRepository.save(any(ProductEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(productRepository.decreaseStockIfAvailable(productId, 5L)).thenReturn(1);
+        doAnswer(invocation -> {
+            ReflectionTestUtils.setField(product, "quantity", 5L);
+            return null;
+        }).when(entityManager).refresh(product);
 
-        ProductResponse result = productService.decreaseStock(productId, 5L);
+        ProductResponse productResponse = productService.decreaseStock(productId, 5L);
 
-        verify(productRepository).save(productCaptor.capture());
-        assertEquals(result.id(), productCaptor.getValue().getId());
-        assertEquals(DEFAULT_QUANTITY - 5L, result.quantity());
+        assertEquals(productId, productResponse.id());
+        assertEquals(5L, productResponse.quantity());
+        verify(productRepository).decreaseStockIfAvailable(productId, 5L);
+        verify(entityManager).refresh(product);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+    }
+
+    @Test
+    void decreaseStock_WhenUpdateAffectsNoRows_ShouldRejectWithoutSaving() {
+        ProductEntity product = createProduct(productId);
+        when(productRepository.findById(productId)).thenReturn(Optional.of(product));
+        when(productRepository.decreaseStockIfAvailable(productId, 11L)).thenReturn(0);
+
+        assertThrows(InsufficientStockException.class, () -> productService.decreaseStock(productId, 11L));
+
+        verifyNoInteractions(entityManager);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void decreaseStock_WhenQuantityIsNotPositive_ShouldRejectWithoutUpdating(long quantity) {
+        assertThrows(IllegalArgumentException.class, () -> productService.decreaseStock(productId, quantity));
+
+        verifyNoInteractions(productRepository, entityManager);
     }
 
     @Test

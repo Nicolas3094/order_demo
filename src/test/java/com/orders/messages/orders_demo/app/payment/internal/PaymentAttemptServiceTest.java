@@ -639,10 +639,10 @@ public class PaymentAttemptServiceTest {
         var createdPaymentResponse = paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest);
 
         InOrder reservationSequence = inOrder(orderInternalApi, productInternalApi, paymentAttemptRepository);
-        reservationSequence.verify(orderInternalApi).markAsPaymentInProgress(orderId);
         reservationSequence.verify(orderInternalApi).getAllOrderItemsFromOrder(orderId);
         reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
         reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
+        reservationSequence.verify(orderInternalApi).markAsPaymentInProgress(orderId);
         reservationSequence.verify(paymentAttemptRepository).save(any(PaymentAttemptEntity.class));
         assertEquals(PaymentStatus.CREATED, createdPaymentResponse.status());
     }

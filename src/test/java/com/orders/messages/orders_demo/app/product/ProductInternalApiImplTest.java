@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.util.Optional;
 
@@ -31,6 +32,9 @@ public class ProductInternalApiImplTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private EntityManager entityManager;
 
     @InjectMocks
     private ProductInternalApiImpl productInternalApi;
@@ -81,15 +85,25 @@ public class ProductInternalApiImplTest {
     }
 
     @Test
-    public void decreaceProductStock_WhenProductExists_ShouldDecreaseStockAndSaveProduct() {
+    void decreaseProductStock_WhenProductExists_ShouldUpdateStockWithoutSavingStaleEntity() {
         ProductEntity product = createProductWithStock(5L);
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
+        when(productRepository.decreaseStockIfAvailable(product.getId(), 3L)).thenReturn(1);
 
         productInternalApi.decreaseProductStock(DEFAULT_SKU, 3L);
 
-        verify(productRepository).findBySku(DEFAULT_SKU);
-        verify(productRepository).save(product);
-        assertEquals(2L, product.getQuantity());
+        verify(productRepository).decreaseStockIfAvailable(product.getId(), 3L);
+        verify(entityManager).refresh(product);
+        verify(productRepository, never()).save(any(ProductEntity.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 0, -1 })
+    void decreaseProductStock_WhenQuantityIsNotPositive_ShouldRejectWithoutUpdating(long quantity) {
+        assertThrows(IllegalArgumentException.class,
+                () -> productInternalApi.decreaseProductStock(DEFAULT_SKU, quantity));
+
+        verifyNoInteractions(productRepository, entityManager);
     }
 
     @Test
@@ -113,6 +127,7 @@ public class ProductInternalApiImplTest {
 
         verify(productRepository).findBySku(DEFAULT_SKU);
         verify(productRepository, never()).save(any(ProductEntity.class));
+        verifyNoInteractions(entityManager);
         assertEquals("Insufficient stock.", result.getMessage());
     }
 
