@@ -96,6 +96,8 @@ public class OrderInternalApiImpl implements OrderInternalApi {
         }
     }
 
+    @Override
+    @Transactional(readOnly = true)
     public List<OrderItemResponse> getAllOrderItemsFromOrder(UUID orderId) {
         return getOrder(orderId).getItems().stream()
                 .map(OrderItemMapper::toResponse)

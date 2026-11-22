@@ -107,7 +107,7 @@ public class PaymentAttemptService {
 
         orderInternalApi.markAsPaymentInProgress(orderId);
 
-        balanceStock(orderId);
+        decreaseStock(orderId);
 
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository
                 .save(PaymentAttemptMapper.toEntity(
@@ -203,6 +203,8 @@ public class PaymentAttemptService {
 
         orderInternalApi.markAsPending(orderId);
 
+        increaseStock(orderId);
+
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
     }
 
@@ -223,6 +225,8 @@ public class PaymentAttemptService {
             payment.cancel();
 
             orderInternalApi.markAsPending(orderId);
+
+            increaseStock(orderId);
         });
     }
 
@@ -274,7 +278,18 @@ public class PaymentAttemptService {
         return paymentAttempt;
     }
 
-    private void balanceStock(UUID orderId) {
+    private void increaseStock(UUID orderId) {
+
+        List<OrderItemResponse> orderItems = orderInternalApi.getAllOrderItemsFromOrder(orderId);
+
+        for (var orderItem : orderItems) {
+            Long requestedQuantity = orderItem.quantity();
+
+            productInternalApi.increaseProductStock(orderItem.sku(), requestedQuantity);
+        }
+    }
+
+    private void decreaseStock(UUID orderId) {
 
         List<OrderItemResponse> orderItems = orderInternalApi.getAllOrderItemsFromOrder(orderId);
 
