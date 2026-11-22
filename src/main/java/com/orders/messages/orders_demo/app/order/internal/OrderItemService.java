@@ -2,6 +2,7 @@ package com.orders.messages.orders_demo.app.order.internal;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -13,7 +14,6 @@ import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrde
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderItemNotFoundException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
-import com.orders.messages.orders_demo.app.product.api.ProductResponse;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
@@ -66,12 +66,6 @@ public class OrderItemService {
     /**
      * Creates a new order item and adds it to the specified order.
      *
-     * <p>
-     * The operation validates that the order is still modifiable, the product is
-     * active, both currencies match, and sufficient stock is available. The product
-     * stock is decreased before the item is added to the order.
-     * </p>
-     *
      * @param orderId the order identifier.
      * @param request the order item creation request.
      * @return the newly created order item.
@@ -88,24 +82,33 @@ public class OrderItemService {
 
         order.validateCanAcceptPayments();
 
-        ProductResponse productResponse = productInternalApi.getProductBySku(request.sku());
+        var productResponse = productInternalApi.getProductBySku(request.sku());
 
         order.validateCurrency(productResponse.currency());
 
-        if (!productResponse.active()) {
-            throw new InvalidProductException(
-                    "Product with SKU " + productResponse.sku() + " is not active.");
+        Optional<OrderItemEntity> orderItemWithSku = order.getItems()
+                .stream()
+                .filter(item -> item.getSku().equals(request.sku()))
+                .findAny();
+
+        Long existingQuantity = 0L;
+
+        if (orderItemWithSku.isPresent()) {
+            existingQuantity += orderItemWithSku.get().getQuantity();
         }
 
-        productInternalApi.decreaceProductStock(request.sku(), request.quantity());
+        productInternalApi.validateIsActiveProduct(productResponse);
+        productInternalApi.validateHasEnoughStock(productResponse, request.quantity() + existingQuantity);
 
         order.addItem(OrderItemMapper.toEntity(request.quantity(), productResponse));
 
         orderRepository.save(order);
 
-        return OrderItemMapper.toResponse(
-                order.getItems().stream().filter(item -> item.getSku().equals(request.sku())).findFirst()
-                        .orElseThrow());
+        return OrderItemMapper.toResponse(order.getItems()
+                .stream()
+                .filter(item -> item.getSku().equals(request.sku()))
+                .findAny()
+                .orElseThrow());
     }
 
     /**
@@ -132,9 +135,9 @@ public class OrderItemService {
      * restored to the product stock.
      * </p>
      *
-     * @param orderId     the order identifier.
-     * @param orderItemId the order item identifier.
-     * @param quantity    the new quantity for the order item.
+     * @param orderId           the order identifier.
+     * @param orderItemId       the order item identifier.
+     * @param requestedQuantity the new quantity for the order item.
      * @return the updated order item.
      * @throws OrderNotFoundException         if the order does not exist.
      * @throws OrderItemNotFoundException     if the order item doesn't exist or
@@ -147,20 +150,14 @@ public class OrderItemService {
      *                                        to satisfy the requested quantity.
      */
     @Transactional
-    public OrderItemResponse changeQuantity(UUID orderId, UUID orderItemId, Long quantity) {
+    public OrderItemResponse changeQuantity(UUID orderId, UUID orderItemId, Long requestedQuantity) {
         return updateOrderItemState(orderId, orderItemId, orderItem -> {
 
-            long delta = quantity - orderItem.getQuantity();
+            productInternalApi.validateHasEnoughStock(
+                    productInternalApi.getProductBySku(orderItem.getSku()), requestedQuantity);
 
-            if (delta > 0) {
-                productInternalApi.decreaceProductStock(orderItem.getSku(), delta);
+            orderItem.changeQuantity(requestedQuantity);
 
-                orderItem.changeQuantity(quantity);
-            } else if (delta < 0) {
-                productInternalApi.increaceProductStock(orderItem.getSku(), -delta);
-
-                orderItem.changeQuantity(quantity);
-            }
         });
     }
 
@@ -193,8 +190,6 @@ public class OrderItemService {
         order.validateCanAcceptPayments();
 
         order.removeItem(orderItem);
-
-        productInternalApi.increaceProductStock(orderItem.getSku(), orderItem.getQuantity());
 
         orderRepository.save(order);
     }

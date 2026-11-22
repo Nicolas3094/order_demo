@@ -206,7 +206,7 @@ class OrderControllerIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldCancelOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() throws Exception {
+    void shouldCancelOrderThroughHttpAndReturn200WithPersistedStatusAndUnchangedStock() throws Exception {
         Long itemsQuantity = 2L;
         UUID productId = persistProduct(INITIAL_STOCK);
         UUID customerId = persistCustomer();
@@ -227,12 +227,12 @@ class OrderControllerIntegrationTest extends PostgresContainer {
             ProductEntity productEntity = productRepository.findById(productId).orElseThrow();
 
             assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.CANCELLED);
-            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK + itemsQuantity);
+            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK);
         });
     }
 
     @Test
-    void shouldExpireOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() throws Exception {
+    void shouldExpireOrderThroughHttpAndReturn200WithPersistedStatusAndUnchangedStock() throws Exception {
         Long itemsQuantity = 2L;
         UUID productId = persistProduct(INITIAL_STOCK);
         UUID customerId = persistCustomer();
@@ -252,12 +252,12 @@ class OrderControllerIntegrationTest extends PostgresContainer {
             ProductEntity productEntity = productRepository.findById(productId).orElseThrow();
 
             assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.EXPIRED);
-            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK + itemsQuantity);
+            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK);
         });
     }
 
     @Test
-    void shouldRefundPaidOrderThroughHttpAndReturn200WithPersistedStatusAndRestoredStock() throws Exception {
+    void shouldRefundPaidOrderThroughHttpAndReturn200WithPersistedStatusAndUnchangedStock() throws Exception {
         Long itemsQuantity = 2L;
         UUID productId = persistProduct(INITIAL_STOCK);
         UUID customerId = persistCustomer();
@@ -277,7 +277,7 @@ class OrderControllerIntegrationTest extends PostgresContainer {
             ProductEntity productEntity = productRepository.findById(productId).orElseThrow();
 
             assertThat(orderEntity.getStatus()).isEqualTo(OrderStatus.REFUNDED);
-            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK + itemsQuantity);
+            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK);
         });
     }
 

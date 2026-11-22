@@ -136,7 +136,7 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.message").value("Insufficient stock."))
+                .andExpect(jsonPath("$.message").value("Product with SKU " + sku + " has not enough stock."))
                 .andExpect(jsonPath("$.path").value("/api/v1/orders/" + orderId + "/items"));
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -152,13 +152,13 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
             assertThat(persistedItem.getQuantity()).isEqualTo(2L);
             assertThat(persistedItem.getUnitPrice()).isEqualByComparingTo("123.00");
             assertThat(persistedItem.getLineTotal()).isEqualByComparingTo("246.00");
-            assertThat(persistedProduct.getQuantity()).isEqualTo(3L);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(5L);
             assertThat(paymentAttemptRepository.findByOrderId(orderId)).isEmpty();
         });
     }
 
     @Test
-    void shouldRecordFailedPaymentThroughHttpAndKeepOrderPendingWithReservedStockAndUnchangedTotal() throws Exception {
+    void shouldRecordFailedPaymentThroughHttpAndReleaseStockWithUnchangedOrderTotal() throws Exception {
         final String sku = "SKU-FAILED-PAYMENT";
         final String idempotencyKey = UUID.randomUUID().toString();
 
@@ -193,7 +193,7 @@ class OrderCheckoutIntegrationTest extends PostgresContainer {
             assertThat(persistedItem.getId()).isEqualTo(existingItem.id());
             assertThat(persistedItem.getQuantity()).isEqualTo(2L);
             assertThat(persistedItem.getLineTotal()).isEqualByComparingTo("246.00");
-            assertThat(persistedProduct.getQuantity()).isEqualTo(3L);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(5L);
             assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
             assertThat(persistedPayment.getFailureCode()).isEqualTo(402);
             assertThat(persistedPayment.getFailureMessage()).isEqualTo("Payment declined.");

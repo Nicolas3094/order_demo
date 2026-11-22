@@ -94,7 +94,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
                     .extracting(OrderItemEntity::getSku, OrderItemEntity::getDescription, OrderItemEntity::getUnitPrice,
                             OrderItemEntity::getQuantity)
                     .containsExactly(PRODUCT_SKU, DEFAULT_DESCRIPTION, DEFAULT_UNIT_PRICE, requestedQuantity);
-            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK - requestedQuantity);
+            assertThat(productEntity.getQuantity()).isEqualTo(INITIAL_STOCK);
         });
     }
 
@@ -132,7 +132,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
                             DEFAULT_UNIT_PRICE,
                             initialOrderItemQuantity + requestedQuantity);
             assertThat(productEntity.getQuantity())
-                    .isEqualTo(INITIAL_STOCK - requestedQuantity - initialOrderItemQuantity);
+                    .isEqualTo(INITIAL_STOCK);
         });
     }
 
@@ -202,7 +202,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
             assertThat(orderRepository.findById(orderId).orElseThrow().getAmountTotal())
                     .isEqualByComparingTo(newPrice);
             assertThat(productRepository.findBySku(PRODUCT_SKU).orElseThrow().getQuantity())
-                    .isEqualTo(INITIAL_STOCK - initialOrderItemQuantity);
+                    .isEqualTo(INITIAL_STOCK);
             assertThat(persisted.getLineTotal()).isEqualTo(newPrice);
             assertThat(persisted.getQuantity()).isEqualTo(1L);
             assertThat(persisted.getUnitPrice()).isEqualTo(newPrice);
@@ -232,7 +232,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
             assertThat(orderRepository.findById(orderId).orElseThrow().getAmountTotal())
                     .isEqualByComparingTo("369.00");
             assertThat(productRepository.findBySku(PRODUCT_SKU).orElseThrow().getQuantity())
-                    .isEqualTo(INITIAL_STOCK - newQuantity);
+                    .isEqualTo(INITIAL_STOCK);
             assertThat(persisted.getLineTotal()).isEqualTo(new BigDecimal("369.00"));
             assertThat(persisted.getQuantity()).isEqualTo(newQuantity);
             assertThat(persisted.getUnitPrice()).isEqualTo(DEFAULT_UNIT_PRICE);
@@ -282,7 +282,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
             OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
 
             assertThat(productRepository.findBySku(PRODUCT_SKU).orElseThrow().getQuantity())
-                    .isEqualTo(INITIAL_STOCK - initialOrderItemQuantity);
+                    .isEqualTo(INITIAL_STOCK);
             assertThat(persistedOrder.getItems()).hasSize(1);
             assertThat(persistedOrder.getAmountTotal()).isEqualTo(new BigDecimal("123.00"));
             assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
@@ -402,7 +402,7 @@ class OrderItemControllerIntegrationTest extends PostgresContainer {
                             .sku(PRODUCT_SKU)
                             .description(DEFAULT_DESCRIPTION)
                             .price(DEFAULT_UNIT_PRICE)
-                            .quantity(INITIAL_STOCK - quantity)
+                            .quantity(INITIAL_STOCK)
                             .build())
                     .getId();
 

@@ -168,38 +168,31 @@ public class OrderServiceTest {
     }
 
     @Test
-    public void cancelOrder_WhenOrderExists_ShouldIncreaseStockForEachOrderItem() {
-        OrderItemEntity item1 = createOrderItem("SKU1", 2L);
-        OrderItemEntity item2 = createOrderItem("SKU2", 1L);
-        fakeOrder.addItem(item1);
-        fakeOrder.addItem(item2);
+    void cancelOrder_WhenOrderHasItems_ShouldPreserveItemsWithoutCallingProducts() {
+        fakeOrder = buildOrder(OrderStatus.PENDING_PAYMENT);
+        fakeOrder.addItem(createOrderItem("SKU1", 2L));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
-        doNothing().when(productInternalApi).increaceProductStock("SKU1", 2L);
-        doNothing().when(productInternalApi).increaceProductStock("SKU2", 1L);
-        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.save(fakeOrder)).thenReturn(fakeOrder);
 
-        OrderResponse result = orderService.cancelOrder(orderId);
+        var result = orderService.cancelOrder(orderId);
 
-        verify(orderRepository).save(fakeOrder);
-        verify(productInternalApi).increaceProductStock("SKU1", 2L);
-        verify(productInternalApi).increaceProductStock("SKU2", 1L);
         assertEquals(OrderStatus.CANCELLED, result.status());
+        assertThat(fakeOrder.getItems()).hasSize(1);
+        verifyNoInteractions(productInternalApi);
     }
 
     @Test
-    public void cancelOrder_WhenProductNotFound_ShouldThrowProductNotFoundException() {
-        OrderItemEntity item1 = createOrderItem("SKU1", 2L);
-        fakeOrder.addItem(item1);
+    void cancelOrder_WhenOrderHasItems_ShouldPreserveItemsWithoutCallingProductsAgain() {
+        fakeOrder = buildOrder(OrderStatus.PENDING_PAYMENT);
+        fakeOrder.addItem(createOrderItem("SKU1", 2L));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
-        doThrow(new ProductNotFoundException("SKU1"))
-                .when(productInternalApi).increaceProductStock("SKU1", 2L);
+        when(orderRepository.save(fakeOrder)).thenReturn(fakeOrder);
 
-        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
-                () -> orderService.cancelOrder(orderId));
+        var result = orderService.cancelOrder(orderId);
 
-        verify(orderRepository, never()).save(any(OrderEntity.class));
-        verify(productInternalApi).increaceProductStock("SKU1", 2L);
-        assertEquals("Product with SKU SKU1 could not be found.", result.getMessage());
+        assertEquals(OrderStatus.CANCELLED, result.status());
+        assertThat(fakeOrder.getItems()).hasSize(1);
+        verifyNoInteractions(productInternalApi);
     }
 
     @Test
@@ -219,7 +212,7 @@ public class OrderServiceTest {
         Exception result = assertThrows(exceptionType,
                 () -> orderService.cancelOrder(orderId));
 
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderRepository, never()).save(any(OrderEntity.class));
         assertEquals(message, result.getMessage());
     }
@@ -241,38 +234,31 @@ public class OrderServiceTest {
     }
 
     @Test
-    public void expireOrder_WhenOrderExists_ShouldIncreaseStockForEachOrderItem() {
-        OrderItemEntity item1 = createOrderItem("SKU1", 2L);
-        OrderItemEntity item2 = createOrderItem("SKU2", 1L);
-        fakeOrder.addItem(item1);
-        fakeOrder.addItem(item2);
+    void expireOrder_WhenOrderHasItems_ShouldPreserveItemsWithoutCallingProducts() {
+        fakeOrder = buildOrder(OrderStatus.PENDING_PAYMENT);
+        fakeOrder.addItem(createOrderItem("SKU1", 2L));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
-        doNothing().when(productInternalApi).increaceProductStock("SKU1", 2L);
-        doNothing().when(productInternalApi).increaceProductStock("SKU2", 1L);
-        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.save(fakeOrder)).thenReturn(fakeOrder);
 
-        OrderResponse result = orderService.expireOrder(orderId);
+        var result = orderService.expireOrder(orderId);
 
-        verify(orderRepository).save(fakeOrder);
-        verify(productInternalApi).increaceProductStock("SKU1", 2L);
-        verify(productInternalApi).increaceProductStock("SKU2", 1L);
         assertEquals(OrderStatus.EXPIRED, result.status());
+        assertThat(fakeOrder.getItems()).hasSize(1);
+        verifyNoInteractions(productInternalApi);
     }
 
     @Test
-    public void expireOrder_WhenProductNotFound_ShouldThrowProductNotFoundException() {
-        OrderItemEntity item1 = createOrderItem("SKU1", 2L);
-        fakeOrder.addItem(item1);
+    void expireOrder_WhenOrderHasItems_ShouldPreserveItemsWithoutCallingProductsAgain() {
+        fakeOrder = buildOrder(OrderStatus.PENDING_PAYMENT);
+        fakeOrder.addItem(createOrderItem("SKU1", 2L));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
-        doThrow(new ProductNotFoundException("SKU1"))
-                .when(productInternalApi).increaceProductStock("SKU1", 2L);
+        when(orderRepository.save(fakeOrder)).thenReturn(fakeOrder);
 
-        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
-                () -> orderService.expireOrder(orderId));
+        var result = orderService.expireOrder(orderId);
 
-        verify(orderRepository, never()).save(any(OrderEntity.class));
-        verify(productInternalApi).increaceProductStock("SKU1", 2L);
-        assertEquals("Product with SKU SKU1 could not be found.", result.getMessage());
+        assertEquals(OrderStatus.EXPIRED, result.status());
+        assertThat(fakeOrder.getItems()).hasSize(1);
+        verifyNoInteractions(productInternalApi);
     }
 
     @Test
@@ -292,7 +278,7 @@ public class OrderServiceTest {
         Exception result = assertThrows(exceptionType,
                 () -> orderService.expireOrder(orderId));
 
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderRepository, never()).save(any(OrderEntity.class));
         assertEquals(message, result.getMessage());
     }
@@ -315,41 +301,31 @@ public class OrderServiceTest {
     }
 
     @Test
-    public void refundOrder_WhenOrderExists_ShouldIncreaseStockForEachOrderItem() {
-        OrderItemEntity item1 = createOrderItem("SKU1", 2L);
-        OrderItemEntity item2 = createOrderItem("SKU2", 1L);
+    void refundOrder_WhenOrderHasItems_ShouldPreserveItemsWithoutCallingProducts() {
         fakeOrder = buildOrder(OrderStatus.PAID);
-        fakeOrder.addItem(item1);
-        fakeOrder.addItem(item2);
+        fakeOrder.addItem(createOrderItem("SKU1", 2L));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
-        doNothing().when(productInternalApi).increaceProductStock("SKU1", 2L);
-        doNothing().when(productInternalApi).increaceProductStock("SKU2", 1L);
-        when(orderRepository.save(fakeOrder)).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.save(fakeOrder)).thenReturn(fakeOrder);
 
-        OrderResponse result = orderService.refundOrder(orderId);
+        var result = orderService.refundOrder(orderId);
 
-        verify(orderRepository).save(fakeOrder);
-        verify(productInternalApi).increaceProductStock("SKU1", 2L);
-        verify(productInternalApi).increaceProductStock("SKU2", 1L);
         assertEquals(OrderStatus.REFUNDED, result.status());
+        assertThat(fakeOrder.getItems()).hasSize(1);
+        verifyNoInteractions(productInternalApi);
     }
 
     @Test
-    public void refundOrder_WhenProductNotFound_ShouldThrowProductNotFoundException() {
-        OrderItemEntity item1 = createOrderItem("SKU1", 2L);
+    void refundOrder_WhenOrderHasItems_ShouldPreserveItemsWithoutCallingProductsAgain() {
         fakeOrder = buildOrder(OrderStatus.PAID);
-        fakeOrder.addItem(item1);
+        fakeOrder.addItem(createOrderItem("SKU1", 2L));
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(fakeOrder));
-        doThrow(new ProductNotFoundException("SKU1"))
-                .when(productInternalApi).increaceProductStock("SKU1", 2L);
+        when(orderRepository.save(fakeOrder)).thenReturn(fakeOrder);
 
-        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
-                () -> orderService.refundOrder(orderId));
+        var result = orderService.refundOrder(orderId);
 
-        verify(orderRepository, never()).save(any(OrderEntity.class));
-        verify(productInternalApi).increaceProductStock("SKU1", 2L);
-        assertEquals("Product with SKU SKU1 could not be found.", result.getMessage());
-
+        assertEquals(OrderStatus.REFUNDED, result.status());
+        assertThat(fakeOrder.getItems()).hasSize(1);
+        verifyNoInteractions(productInternalApi);
     }
 
     @Test

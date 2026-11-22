@@ -129,7 +129,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldCreateItemDecreaseStockAndUpdateOrderTotalWithEqualSKU() {
+    public void shouldCreateItemPreserveStockAndUpdateOrderTotalWithEqualSKU() {
         UUID orderId = persistOrder(1L);
         UUID productId = persistProduct(INITIAL_PRODUCT_STOCK);
         CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 2L);
@@ -143,12 +143,12 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             assertThat(order.getItems()).hasSize(1);
             assertThat(order.getItems().get(0).getQuantity()).isEqualTo(3L);
             assertThat(order.getAmountTotal()).isEqualByComparingTo("370.50");
-            assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK - 2);
+            assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 
     @Test
-    public void shouldCreateItemDecreaseStockAndUpdateOrderTotalWithNotEqualSKU() {
+    public void shouldCreateItemPreserveStockAndUpdateOrderTotalWithNotEqualSKU() {
         UUID newProductId = persistProduct("SKU-234", 5L);
         UUID productId = persistProduct(INITIAL_PRODUCT_STOCK);
         UUID orderId = persistOrder(1L);
@@ -164,7 +164,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             assertThat(order.getItems()).hasSize(2);
             assertThat(order.getAmountTotal()).isEqualByComparingTo("370.50");
             assertThat(product.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
-            assertThat(newProductEntity.getQuantity()).isEqualTo(3L);
+            assertThat(newProductEntity.getQuantity()).isEqualTo(5L);
         });
     }
 
@@ -214,7 +214,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
         CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, INITIAL_PRODUCT_STOCK + 1);
 
         assertThatThrownBy(() -> orderItemService.createOrderItem(orderId, request))
-                .isInstanceOf(InsufficientStockException.class);
+                .isInstanceOf(InvalidProductException.class);
         assertOrderAndProductInitialState(orderId, OrderStatus.PENDING_PAYMENT, productId);
     }
 
@@ -264,7 +264,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldIncreaseQuantityDecreaseStockAndUpdateTotals() {
+    public void shouldIncreaseQuantityPreserveStockAndUpdateTotals() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
         UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
@@ -282,12 +282,12 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             assertThat(orderItemEntity.getQuantity()).isEqualTo(5L);
             assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("617.50"));
             assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("617.50"));
-            assertThat(persistedProduct.getQuantity()).isEqualTo(6L);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 
     @Test
-    public void shouldDecreaseQuantityRestoreStockAndUpdateTotals() {
+    public void shouldDecreaseQuantityPreserveStockAndUpdateTotals() {
         UUID orderId = persistOrder(/* quantity= */ 2L);
         UUID productId = persistProduct();
         UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
@@ -305,7 +305,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             assertThat(orderItemEntity.getQuantity()).isEqualTo(1L);
             assertThat(orderItemEntity.getLineTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
             assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("123.50"));
-            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 
@@ -340,7 +340,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
 
         assertThatThrownBy(
                 () -> orderItemService.changeQuantity(orderId, orderItemIdFromOrder, 4L))
-                .isInstanceOf(InsufficientStockException.class);
+                .isInstanceOf(InvalidProductException.class);
         transactionTemplate.executeWithoutResult(status -> {
             OrderEntity persistedOrder = orderRepository.findById(orderId).orElseThrow();
             ProductEntity persistedProduct = productRepository.findById(productId).orElseThrow();
@@ -357,7 +357,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldDeleteItemRestoreStockAndUpdateOrderTotal() {
+    public void shouldDeleteItemPreserveStockAndUpdateOrderTotal() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
         UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
@@ -372,7 +372,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
             assertThat(persistedOrder.getItems().size()).isEqualTo(0);
             assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
             assertThat(persistedOrder.getAmountTotal()).isEqualByComparingTo(new BigDecimal("0.00"));
-            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 
@@ -414,7 +414,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldRollBackItemCreationAndStockDeductionWhenCallerTransactionFails() {
+    public void shouldRollBackItemCreationWithoutStockDeductionWhenCallerTransactionFails() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
         CreateOrderItemRequest request = new CreateOrderItemRequest(PRODUCT_SKU, 3L);
@@ -428,7 +428,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldRollBackQuantityChangeAndStockAdjustmentWhenCallerTransactionFails() {
+    public void shouldRollBackQuantityChangeWithoutStockAdjustmentWhenCallerTransactionFails() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
         UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
@@ -458,7 +458,7 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldRollBackItemDeletionAndStockRestorationWhenCallerTransactionFails() {
+    public void shouldRollBackItemDeletionWithoutStockRestorationWhenCallerTransactionFails() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
         UUID orderItemIdFromOrder = getFirstOrderItem(orderId);
@@ -470,6 +470,25 @@ public class OrderItemServiceIntegrationTest extends PostgresContainer {
                 })).isInstanceOf(RuntimeException.class)
                 .hasMessage("Simulated failure after item deletion");
         assertOrderProductAndItemInitialState(orderId, orderItemIdFromOrder, OrderStatus.PENDING_PAYMENT, productId);
+    }
+
+    @Test
+    void shouldRejectAccumulatedQuantityBeyondAvailableStockWithoutChangingCart() {
+        UUID orderId = persistOrder(4L);
+        UUID productId = persistProduct(5L);
+        UUID itemId = getFirstOrderItem(orderId);
+
+        assertThatThrownBy(() -> orderItemService.createOrderItem(orderId, new CreateOrderItemRequest(PRODUCT_SKU, 2L)))
+                .isInstanceOf(InvalidProductException.class);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var order = orderRepository.findById(orderId).orElseThrow();
+            assertThat(order.getItems()).hasSize(1);
+            assertThat(order.getItems().get(0).getId()).isEqualTo(itemId);
+            assertThat(order.getItems().get(0).getQuantity()).isEqualTo(4L);
+            assertThat(order.getAmountTotal()).isEqualByComparingTo("494.00");
+            assertThat(productRepository.findById(productId).orElseThrow().getQuantity()).isEqualTo(5L);
+        });
     }
 
     private UUID getFirstOrderItem(UUID orderId) {

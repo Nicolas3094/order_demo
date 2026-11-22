@@ -9,6 +9,10 @@ import java.math.BigDecimal;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import com.orders.messages.orders_demo.app.product.internal.ProductMapper;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -58,7 +62,7 @@ public class ProductInternalApiImplTest {
         ProductEntity product = createProductWithStock(5L);
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
 
-        productInternalApi.increaceProductStock(DEFAULT_SKU, 3L);
+        productInternalApi.increaseProductStock(DEFAULT_SKU, 3L);
 
         verify(productRepository).findBySku(DEFAULT_SKU);
         verify(productRepository).save(product);
@@ -70,7 +74,7 @@ public class ProductInternalApiImplTest {
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.empty());
 
         assertThrows(ProductNotFoundException.class,
-                () -> productInternalApi.increaceProductStock(DEFAULT_SKU, 3L));
+                () -> productInternalApi.increaseProductStock(DEFAULT_SKU, 3L));
 
         verify(productRepository).findBySku(DEFAULT_SKU);
         verify(productRepository, never()).save(any(ProductEntity.class));
@@ -81,7 +85,7 @@ public class ProductInternalApiImplTest {
         ProductEntity product = createProductWithStock(5L);
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
 
-        productInternalApi.decreaceProductStock(DEFAULT_SKU, 3L);
+        productInternalApi.decreaseProductStock(DEFAULT_SKU, 3L);
 
         verify(productRepository).findBySku(DEFAULT_SKU);
         verify(productRepository).save(product);
@@ -93,7 +97,7 @@ public class ProductInternalApiImplTest {
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.empty());
 
         assertThrows(ProductNotFoundException.class,
-                () -> productInternalApi.decreaceProductStock(DEFAULT_SKU, 3L));
+                () -> productInternalApi.decreaseProductStock(DEFAULT_SKU, 3L));
 
         verify(productRepository).findBySku(DEFAULT_SKU);
         verify(productRepository, never()).save(any(ProductEntity.class));
@@ -105,11 +109,48 @@ public class ProductInternalApiImplTest {
         when(productRepository.findBySku(DEFAULT_SKU)).thenReturn(Optional.of(product));
 
         InsufficientStockException result = assertThrows(InsufficientStockException.class,
-                () -> productInternalApi.decreaceProductStock(DEFAULT_SKU, 3L));
+                () -> productInternalApi.decreaseProductStock(DEFAULT_SKU, 3L));
 
         verify(productRepository).findBySku(DEFAULT_SKU);
         verify(productRepository, never()).save(any(ProductEntity.class));
         assertEquals("Insufficient stock.", result.getMessage());
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 1, 5 })
+    void validateHasEnoughStock_WhenAvailable_ShouldAcceptWithoutSaving(long quantity) {
+        var product = createProductWithStock(5L);
+
+        productInternalApi.validateHasEnoughStock(ProductMapper.toResponse(product), quantity);
+
+        assertEquals(5L, product.getQuantity());
+        verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void validateHasEnoughStock_WhenInsufficient_ShouldRejectWithoutSaving() {
+        var product = ProductMapper.toResponse(createProductWithStock(5L));
+
+        assertThrows(InvalidProductException.class, () -> productInternalApi.validateHasEnoughStock(product, 6L));
+
+        verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void validateIsActiveProduct_WhenInactive_ShouldReject() {
+        var product = createProduct();
+        product.deactivate();
+
+        assertThrows(InvalidProductException.class, () -> productInternalApi.validateIsActiveProduct(ProductMapper.toResponse(product)));
+
+        verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void validateIsActiveProduct_WhenActive_ShouldAcceptWithoutSaving() {
+        productInternalApi.validateIsActiveProduct(ProductMapper.toResponse(createProduct()));
+
+        verifyNoInteractions(productRepository);
     }
 
     private ProductEntity createProduct() {

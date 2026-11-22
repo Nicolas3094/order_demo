@@ -18,7 +18,6 @@ import com.orders.messages.orders_demo.app.order.api.CreateOrderRequest;
 import com.orders.messages.orders_demo.app.order.api.OrderResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
-import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
 @Service
@@ -26,15 +25,13 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final CustomerInternalApi customerInternalApi;
-    private final ProductInternalApi productInternalApi;
     private final JdbcTemplate jdbcTemplate;
 
     public OrderService(OrderRepository repository,
             CustomerInternalApi customerInternalApi,
-            ProductInternalApi productInternalApi, JdbcTemplate jdbcTemplate) {
+            JdbcTemplate jdbcTemplate) {
         this.orderRepository = repository;
         this.customerInternalApi = customerInternalApi;
-        this.productInternalApi = productInternalApi;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -104,20 +101,6 @@ public class OrderService {
         return new OrderCreationResult(OrderMapper.toResponse(order), true);
     }
 
-    private void lockOrderCreation(UUID customerId) {
-        jdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
-            try (var statement = connection.prepareStatement(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")) {
-                statement.setString(1, "customer-open-order:" + customerId);
-                statement.execute();
-            }
-            return null;
-        });
-    }
-
-    public record OrderCreationResult(OrderResponse order, boolean created) {
-    }
-
     /**
      * Cancels an order and restores the stock of all associated products.
      *
@@ -128,7 +111,7 @@ public class OrderService {
      */
     @Transactional
     public OrderResponse cancelOrder(UUID id) {
-        return restoreProductsStock(id, OrderEntity::cancelOrder);
+        return validateOrderAnAct(id, OrderEntity::cancelOrder);
     }
 
     /**
@@ -141,7 +124,7 @@ public class OrderService {
      */
     @Transactional
     public OrderResponse expireOrder(UUID id) {
-        return restoreProductsStock(id, OrderEntity::expire);
+        return validateOrderAnAct(id, OrderEntity::expire);
     }
 
     /**
@@ -154,7 +137,7 @@ public class OrderService {
      */
     @Transactional
     public OrderResponse refundOrder(UUID id) {
-        return restoreProductsStock(id, OrderEntity::refund);
+        return validateOrderAnAct(id, OrderEntity::refund);
     }
 
     /**
@@ -174,33 +157,33 @@ public class OrderService {
     }
 
     /**
-     * Applies a state transition to an order and restores the stock of all
-     * associated products.
-     *
-     * <p>
-     * This method is shared by order operations that return reserved inventory to
-     * stock, such as cancellation, expiration, and refund.
-     * </p>
+     * Applies a state transition to an validated order.
      *
      * @param id     the order identifier.
      * @param action the state transition to apply.
      * @return the updated order.
-     * @throws OrderNotFoundException   if the order does not exist.
-     * @throws ProductNotFoundException if any associated product cannot be found.
+     * @throws OrderNotFoundException if the order does not exist.
      */
-    private OrderResponse restoreProductsStock(UUID id, Consumer<OrderEntity> action) {
+    private OrderResponse validateOrderAnAct(UUID id, Consumer<OrderEntity> action) {
         OrderEntity order = orderRepository.findById(id).orElseThrow(OrderNotFoundException::new);
 
         action.accept(order);
-
-        // TODO: Optimize product loading using findBySkuIn(...) and saveAll() to avoid
-        // N+1 queries for large orders.
-        for (OrderItemEntity item : order.getItems()) {
-            productInternalApi.increaceProductStock(item.getSku(), item.getQuantity());
-        }
 
         return OrderMapper.toResponse(orderRepository.save(order));
 
     }
 
+    private void lockOrderCreation(UUID customerId) {
+        jdbcTemplate.execute((ConnectionCallback<Void>) connection -> {
+            try (var statement = connection.prepareStatement(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+                statement.setString(1, "customer-open-order:" + customerId);
+                statement.execute();
+            }
+            return null;
+        });
+    }
+
+    public record OrderCreationResult(OrderResponse order, boolean created) {
+    }
 }

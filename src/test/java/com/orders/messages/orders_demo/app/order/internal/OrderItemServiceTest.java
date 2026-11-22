@@ -136,7 +136,9 @@ public class OrderItemServiceTest {
         OrderItemResponse result = orderItemService.createOrderItem(orderId, request);
 
         verify(orderRepository).save(order);
-        verify(productInternalApi).decreaceProductStock(DEFAULT_SKU, 3L);
+        verify(productInternalApi).validateHasEnoughStock(product, 13L);
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         assertEquals(1, order.getItems().size());
         assertEquals(orderItemId, result.id());
         assertEquals(orderId, result.orderId());
@@ -159,7 +161,8 @@ public class OrderItemServiceTest {
         OrderItemResponse result = orderItemService.createOrderItem(orderId, request);
 
         verify(orderRepository).save(order);
-        verify(productInternalApi).decreaceProductStock(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         assertEquals(order.getId(), result.orderId());
         assertEquals(1, order.getItems().size());
         assertEquals(DEFAULT_SKU, result.sku());
@@ -181,7 +184,7 @@ public class OrderItemServiceTest {
                 () -> orderItemService.createOrderItem(orderId, request));
 
         verify(productInternalApi, never()).getProductBySku(anyString());
-        verify(productInternalApi, never()).decreaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
         verify(orderRepository, never()).save(any(OrderEntity.class));
         assertEquals("Only pending orders can be modified.", result.getMessage());
     }
@@ -195,7 +198,7 @@ public class OrderItemServiceTest {
                 () -> orderItemService.createOrderItem(orderId, request));
 
         verify(orderRepository, never()).save(any(OrderEntity.class));
-        verify(productInternalApi, never()).decreaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
         assertEquals(ORDER_ERROR_MESSAGE, result.getMessage());
     }
 
@@ -222,6 +225,9 @@ public class OrderItemServiceTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(productInternalApi.getProductBySku(DEFAULT_SKU)).thenReturn(product);
 
+        doThrow(new InvalidProductException("Product with SKU sku is not active."))
+                .when(productInternalApi).validateIsActiveProduct(product);
+
         InvalidProductException result = assertThrows(InvalidProductException.class,
                 () -> orderItemService.createOrderItem(orderId, request));
 
@@ -238,14 +244,15 @@ public class OrderItemServiceTest {
         when(orderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(productInternalApi.getProductBySku(DEFAULT_SKU)).thenReturn(product);
         doThrow(new InsufficientStockException())
-                .when(productInternalApi).decreaceProductStock(DEFAULT_SKU, 3L);
+                .when(productInternalApi).validateHasEnoughStock(product, 3L);
 
         InsufficientStockException result = assertThrows(InsufficientStockException.class,
                 () -> orderItemService.createOrderItem(orderId, request));
 
         verify(orderRepository, never()).save(any(OrderEntity.class));
         verify(productInternalApi).getProductBySku(DEFAULT_SKU);
-        verify(productInternalApi).decreaceProductStock(DEFAULT_SKU, 3L);
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         assertEquals("Insufficient stock.", result.getMessage());
     }
 
@@ -270,7 +277,7 @@ public class OrderItemServiceTest {
 
         verify(orderRepository, never()).save(any(OrderEntity.class));
         verify(productInternalApi).getProductBySku(DEFAULT_SKU);
-        verify(productInternalApi, never()).decreaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
         assertEquals("Product currency USD does not match order currency MXN.", result.getMessage());
     }
 
@@ -286,12 +293,12 @@ public class OrderItemServiceTest {
         OrderItemEntity orderItem = createOrderItem(orderItemId);
         order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
-        doNothing().when(productInternalApi).increaceProductStock(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
 
         orderItemService.deleteOrderItem(orderId, orderItemId);
 
         verify(orderItemRepository).findById(orderItemId);
-        verify(productInternalApi).increaceProductStock(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderRepository).save(order);
         verify(orderItemRepository, never()).delete(any(OrderItemEntity.class));
         assertEquals(0, order.getItems().size());
@@ -309,7 +316,7 @@ public class OrderItemServiceTest {
         InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> orderItemService.deleteOrderItem(orderId, orderItemId));
 
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderRepository, never()).save(any(OrderEntity.class));
         assertEquals("Only pending orders can be modified.", result.getMessage());
     }
@@ -325,20 +332,17 @@ public class OrderItemServiceTest {
     }
 
     @Test
-    public void deleteOrderItem_WhenProductIsNotFound_ShouldThrowProductNotFoundException() {
-        OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
-        OrderItemEntity orderItem = createOrderItem(orderItemId);
-        order.addItem(orderItem);
-        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
-        doThrow(new ProductNotFoundException(DEFAULT_SKU))
-                .when(productInternalApi).increaceProductStock(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
+    void deleteOrderItem_WhenProductIsUnavailable_ShouldStillRemoveItemWithoutCallingProduct() {
+        var order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        var item = createOrderItem(orderItemId);
+        order.addItem(item);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(item));
 
-        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
-                () -> orderItemService.deleteOrderItem(orderId, orderItemId));
+        orderItemService.deleteOrderItem(orderId, orderItemId);
 
-        verify(orderItemRepository, never()).delete(any(OrderItemEntity.class));
-        verify(productInternalApi).increaceProductStock(DEFAULT_SKU, DEFAULT_QUANTITY_LONG);
-        assertEquals("Product with SKU sku could not be found.", result.getMessage());
+        assertEquals(0, order.getItems().size());
+        verify(orderRepository).save(order);
+        verifyNoInteractions(productInternalApi);
     }
 
     @Test
@@ -452,7 +456,7 @@ public class OrderItemServiceTest {
 
     // 22 - 10 = 12 > 0 -> product stock should decrease by 12
     @Test
-    public void changeQuantity_WhenQuantityDifferenceIsPositive_ShouldDecreaseProductStock() {
+    public void changeQuantity_WhenQuantityIncreases_ShouldValidateWithoutChangingStock() {
         Long newQuantity = 22L;
         OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItemEntity orderItem = createOrderItem(orderItemId);
@@ -462,8 +466,9 @@ public class OrderItemServiceTest {
 
         OrderItemResponse result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
 
-        verify(productInternalApi).decreaceProductStock(DEFAULT_SKU, 12);
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderItemRepository).findById(orderItemId);
         verify(orderItemRepository).save(orderItem);
         assertEquals(orderItemId, result.id());
@@ -472,7 +477,7 @@ public class OrderItemServiceTest {
 
     // 2 - 10 = -8 < 0 -> product stock should increase by 8
     @Test
-    public void changeQuantity_WhenQuantityDifferenceIsNegative_ShouldIncreaseProductStock() {
+    public void changeQuantity_WhenQuantityDecreases_ShouldValidateWithoutChangingStock() {
         Long newQuantity = 2L;
         OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
         OrderItemEntity orderItem = createOrderItem(orderItemId);
@@ -482,8 +487,9 @@ public class OrderItemServiceTest {
 
         OrderItemResponse result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
 
-        verify(productInternalApi, never()).decreaceProductStock(anyString(), anyLong());
-        verify(productInternalApi).increaceProductStock(DEFAULT_SKU, 8);
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderItemRepository).findById(orderItemId);
         verify(orderItemRepository).save(orderItem);
         assertEquals(orderItemId, result.id());
@@ -502,8 +508,8 @@ public class OrderItemServiceTest {
 
         OrderItemResponse result = orderItemService.changeQuantity(orderId, orderItemId, newQuantity);
 
-        verify(productInternalApi, never()).decreaceProductStock(anyString(), anyLong());
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderItemRepository).findById(orderItemId);
         verify(orderItemRepository).save(orderItem);
         assertEquals(orderItemId, result.id());
@@ -522,52 +528,39 @@ public class OrderItemServiceTest {
         InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
                 () -> orderItemService.changeQuantity(orderId, orderItemId, 22L));
 
-        verify(productInternalApi, never()).decreaceProductStock(anyString(), anyLong());
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderItemRepository, never()).save(any(OrderItemEntity.class));
 
         assertEquals("Only pending orders can be modified.", result.getMessage());
     }
 
     @Test
-    public void changeQuantity_WhenIncreasingProductStockFails_ShouldThrowProductNotFoundException() {
-        Long newQuantity = 2L;
-        OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
-        OrderItemEntity orderItem = createOrderItem(orderItemId);
-        order.addItem(orderItem);
-        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
-        doThrow(new ProductNotFoundException(DEFAULT_SKU))
-                .when(productInternalApi).increaceProductStock(DEFAULT_SKU, 8);
+    void changeQuantity_WhenLookupFails_ShouldPreserveQuantity() {
+        var order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        var item = createOrderItem(orderItemId);
+        order.addItem(item);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(item));
+        when(productInternalApi.getProductBySku(DEFAULT_SKU)).thenThrow(new ProductNotFoundException(DEFAULT_SKU));
 
-        ProductNotFoundException result = assertThrows(
-                ProductNotFoundException.class,
-                () -> orderItemService.changeQuantity(orderId, orderItemId, newQuantity));
+        assertThrows(ProductNotFoundException.class, () -> orderItemService.changeQuantity(orderId, orderItemId, 2L));
 
-        verify(productInternalApi).increaceProductStock(DEFAULT_SKU, 8);
-        verify(productInternalApi, never()).decreaceProductStock(anyString(), anyLong());
+        assertEquals(DEFAULT_QUANTITY_LONG, item.getQuantity());
         verify(orderItemRepository, never()).save(any(OrderItemEntity.class));
-        assertEquals(DEFAULT_QUANTITY_LONG, orderItem.getQuantity());
-        assertEquals("Product with SKU sku could not be found.", result.getMessage());
     }
 
     @Test
-    public void changeQuantity_WhenProductNotFound_ShouldThrowProductNotFoundException() {
-        Long newQuantity = 22L;
-        OrderEntity order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
-        OrderItemEntity orderItem = createOrderItem(orderItemId);
-        order.addItem(orderItem);
-        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
-        doThrow(new ProductNotFoundException(DEFAULT_SKU))
-                .when(productInternalApi).decreaceProductStock(DEFAULT_SKU, 12);
+    void changeQuantity_WhenProductIsMissing_ShouldReject() {
+        var order = createOrder(orderId, OrderStatus.PENDING_PAYMENT);
+        var item = createOrderItem(orderItemId);
+        order.addItem(item);
+        when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(item));
+        when(productInternalApi.getProductBySku(DEFAULT_SKU)).thenThrow(new ProductNotFoundException(DEFAULT_SKU));
 
-        ProductNotFoundException result = assertThrows(ProductNotFoundException.class,
-                () -> orderItemService.changeQuantity(orderId, orderItemId, newQuantity));
+        assertThrows(ProductNotFoundException.class, () -> orderItemService.changeQuantity(orderId, orderItemId, 2L));
 
-        verify(productInternalApi).decreaceProductStock(DEFAULT_SKU, 12);
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        assertEquals(DEFAULT_QUANTITY_LONG, item.getQuantity());
         verify(orderItemRepository, never()).save(any(OrderItemEntity.class));
-        assertEquals(DEFAULT_QUANTITY_LONG, orderItem.getQuantity());
-        assertEquals("Product with SKU sku could not be found.", result.getMessage());
     }
 
     @Test
@@ -578,13 +571,14 @@ public class OrderItemServiceTest {
         order.addItem(orderItem);
         when(orderItemRepository.findById(orderItemId)).thenReturn(Optional.of(orderItem));
         doThrow(new InsufficientStockException())
-                .when(productInternalApi).decreaceProductStock(DEFAULT_SKU, 190);
+                .when(productInternalApi).validateHasEnoughStock(any(), eq(newQuantity));
 
         InsufficientStockException result = assertThrows(InsufficientStockException.class,
                 () -> orderItemService.changeQuantity(orderId, orderItemId, newQuantity));
 
-        verify(productInternalApi).decreaceProductStock(DEFAULT_SKU, 190);
-        verify(productInternalApi, never()).increaceProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).decreaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
+        verify(productInternalApi, never()).increaseProductStock(anyString(), anyLong());
         verify(orderItemRepository, never()).save(any(OrderItemEntity.class));
         assertEquals(DEFAULT_QUANTITY_LONG, orderItem.getQuantity());
         assertEquals("Insufficient stock.", result.getMessage());

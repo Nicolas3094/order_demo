@@ -24,7 +24,7 @@ public interface ProductInternalApi {
      * @param quantity the quantity to increase.
      * @throws ProductNotFoundException if the product does not exist.
      */
-    void increaceProductStock(String sku, long quantity);
+    void increaseProductStock(String sku, long quantity);
 
     /**
      * Decreases the stock of a product by its SKU.
@@ -34,6 +34,9 @@ public interface ProductInternalApi {
      * @throws ProductNotFoundException   if the product does not exist.
      * @throws InsufficientStockException if there is not enough stock.
      */
-    void decreaceProductStock(String sku, long quantity);
+    void decreaseProductStock(String sku, long quantity);
 
+    void validateIsActiveProduct(ProductResponse productResponse);
+
+    void validateHasEnoughStock(ProductResponse productResponse, Long requestedQuantity);
 }

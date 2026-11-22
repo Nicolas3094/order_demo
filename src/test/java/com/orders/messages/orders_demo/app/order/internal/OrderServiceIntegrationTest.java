@@ -253,7 +253,7 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldCancelOrderAndRestoreProductStock() {
+    public void shouldCancelOrderWithoutChangingProductStock() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
         transactionTemplate.executeWithoutResult(status -> orderService.cancelOrder(orderId));
@@ -264,12 +264,12 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
             assertThat(persistedOrder.getId()).isEqualTo(orderId);
             assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
-            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 
     @Test
-    public void shouldExpireOrderAndRestoreProductStock() {
+    public void shouldExpireOrderWithoutChangingProductStock() {
         UUID orderId = persistOrder();
         UUID productId = persistProduct();
         transactionTemplate.executeWithoutResult(status -> orderService.expireOrder(orderId));
@@ -280,12 +280,12 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
             assertThat(persistedOrder.getId()).isEqualTo(orderId);
             assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.EXPIRED);
-            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 
     @Test
-    public void shouldRefundOrderAndRestoreProductStock() {
+    public void shouldRefundOrderWithoutChangingProductStock() {
         UUID orderId = persistOrder(OrderStatus.PAID);
         UUID productId = persistProduct();
         transactionTemplate.executeWithoutResult(status -> orderService.refundOrder(orderId));
@@ -296,7 +296,7 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
 
             assertThat(persistedOrder.getId()).isEqualTo(orderId);
             assertThat(persistedOrder.getStatus()).isEqualTo(OrderStatus.REFUNDED);
-            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK + 1L);
+            assertThat(persistedProduct.getQuantity()).isEqualTo(INITIAL_PRODUCT_STOCK);
         });
     }
 
@@ -365,30 +365,33 @@ public class OrderServiceIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    public void shouldRollBackCancellationWhenStockRestorationFails() {
+    void shouldCompleteCancellationWithoutLookingUpMissingProducts() {
         UUID orderId = persistOrderWithUnknownSKU();
         UUID productId = persistProduct();
 
-        assertThatThrownBy(() -> orderService.cancelOrder(orderId)).isInstanceOf(ProductNotFoundException.class);
-        assertOrderAndProductState(orderId, OrderStatus.PENDING_PAYMENT, productId);
+        orderService.cancelOrder(orderId);
+
+        assertOrderAndProductState(orderId, OrderStatus.CANCELLED, productId);
     }
 
     @Test
-    public void shouldRollBackExpirationWhenStockRestorationFails() {
+    void shouldCompleteExpirationWithoutLookingUpMissingProducts() {
         UUID orderId = persistOrderWithUnknownSKU();
         UUID productId = persistProduct();
 
-        assertThatThrownBy(() -> orderService.expireOrder(orderId)).isInstanceOf(ProductNotFoundException.class);
-        assertOrderAndProductState(orderId, OrderStatus.PENDING_PAYMENT, productId);
+        orderService.expireOrder(orderId);
+
+        assertOrderAndProductState(orderId, OrderStatus.EXPIRED, productId);
     }
 
     @Test
-    public void shouldRollBackRefundWhenStockRestorationFails() {
+    void shouldCompleteRefundWithoutLookingUpMissingProducts() {
         UUID orderId = persistOrderWithUnknownSKU(OrderStatus.PAID);
         UUID productId = persistProduct();
 
-        assertThatThrownBy(() -> orderService.refundOrder(orderId)).isInstanceOf(ProductNotFoundException.class);
-        assertOrderAndProductState(orderId, OrderStatus.PAID, productId);
+        orderService.refundOrder(orderId);
+
+        assertOrderAndProductState(orderId, OrderStatus.REFUNDED, productId);
     }
 
     // Cada Consumer recibe el UUID inexistente y ejecuta una transición en el
