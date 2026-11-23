@@ -2,11 +2,13 @@ package com.orders.messages.orders_demo.app.payment.internal;
 
 import java.math.BigDecimal;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
@@ -74,11 +76,94 @@ public class PaymentAttemptEntityTest {
         assertEquals(PaymentStatus.CREATED, paymentAttempt.getStatus());
     }
 
-    @SuppressWarnings("unused")
-    private static Stream<Arguments> invalidPaymentStateExceptionWhenPaymentIsCancelled() {
-        return Stream.of(
-                Arguments.of(PaymentStatus.SUCCEEDED, "Successful payments cannot be cancelled."),
-                Arguments.of(PaymentStatus.FAILED, "Failed payments cannot be cancelled."),
-                Arguments.of(PaymentStatus.CANCELLED, "Payment is already cancelled."));
+    @Test
+    void startProcessing_WhenStateIsValid_ShouldApplyTransition() {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId())
+                .status(PaymentStatus.CREATED).build();
+
+        paymentAttempt.startProcessing();
+
+        assertEquals(PaymentStatus.PROCESSING, paymentAttempt.getStatus());
     }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "CREATED")
+    void startProcessing_WhenStateIsInvalid_ShouldRejectWithoutChangingState(PaymentStatus initialStatus) {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId()).status(initialStatus).build();
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttempt.startProcessing());
+
+        assertEquals("Only created payments can start processing.", invalidPaymentStateException.getMessage());
+        assertEquals(initialStatus, paymentAttempt.getStatus());
+    }
+
+    @Test
+    void markAsSucceeded_WhenStateIsValid_ShouldApplyTransition() {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId())
+                .status(PaymentStatus.PROCESSING).build();
+
+        paymentAttempt.markAsSucceeded("success-ref");
+
+        assertEquals(PaymentStatus.SUCCEEDED, paymentAttempt.getStatus());
+        assertEquals("success-ref", paymentAttempt.getProviderRef());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
+    void markAsSucceeded_WhenStateIsInvalid_ShouldRejectWithoutChangingState(PaymentStatus initialStatus) {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId()).status(initialStatus).build();
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttempt.markAsSucceeded("success-ref"));
+
+        assertEquals("Only processing payments can be marked as succeeded.", invalidPaymentStateException.getMessage());
+        assertEquals(initialStatus, paymentAttempt.getStatus());
+    }
+
+    @Test
+    void markAsFailed_WhenStateIsValid_ShouldApplyTransition() {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId())
+                .status(PaymentStatus.PROCESSING).build();
+
+        paymentAttempt.markAsFailed(402, "Declined");
+
+        assertEquals(PaymentStatus.FAILED, paymentAttempt.getStatus());
+        assertEquals(402, paymentAttempt.getFailureCode());
+        assertEquals("Declined", paymentAttempt.getFailureMessage());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
+    void markAsFailed_WhenStateIsInvalid_ShouldRejectWithoutChangingState(PaymentStatus initialStatus) {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId()).status(initialStatus).build();
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttempt.markAsFailed(402, "Declined"));
+
+        assertEquals("Only processing payments can fail.", invalidPaymentStateException.getMessage());
+        assertEquals(initialStatus, paymentAttempt.getStatus());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "PROCESSING" })
+    void cancel_WhenStateIsValid_ShouldCancelPayment(PaymentStatus initialStatus) {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId()).status(initialStatus).build();
+
+        paymentAttempt.cancel();
+
+        assertEquals(PaymentStatus.CANCELLED, paymentAttempt.getStatus());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = { "SUCCEEDED", "FAILED", "CANCELLED" })
+    void cancel_WhenStateIsTerminal_ShouldRejectWithoutChangingState(PaymentStatus initialStatus) {
+        var paymentAttempt = PaymentAttemptEntity.builder().orderId(DEFAULT_ORDER.getId()).status(initialStatus).build();
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class, paymentAttempt::cancel);
+
+        assertEquals("Only created or processing payments can be cancelled.", invalidPaymentStateException.getMessage());
+        assertEquals(initialStatus, paymentAttempt.getStatus());
+    }
+
 }

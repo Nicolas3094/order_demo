@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.Optional;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.OptimisticLockingFailureException;
+import jakarta.persistence.OptimisticLockException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -167,6 +169,14 @@ public class GlobalExceptionHandler {
                 request.getRequestURI());
 
         return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler({ OptimisticLockingFailureException.class, OptimisticLockException.class })
+    public ResponseEntity<ErrorResponse> handleOptimisticLock(Exception exception, HttpServletRequest request) {
+        ErrorResponse response = new ErrorResponse(
+                Instant.now(), HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
+                "Resource was modified by another transaction. Please retry.", request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
     }
 
     /**

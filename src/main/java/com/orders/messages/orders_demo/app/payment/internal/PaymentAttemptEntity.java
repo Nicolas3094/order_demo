@@ -17,6 +17,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
+
+import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 
 @Entity
 @Table(name = "payment_attempt", uniqueConstraints = {
@@ -53,6 +56,10 @@ public class PaymentAttemptEntity {
     private String failureMessage;
 
     private Integer failureCode;
+
+    @Version
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    private Long version;
 
     @CreationTimestamp
     private Instant createdAt;
@@ -117,6 +124,41 @@ public class PaymentAttemptEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void startProcessing() {
+        if (status != PaymentStatus.CREATED) {
+            throw new InvalidPaymentStateException("Only created payments can start processing.");
+        }
+        status = PaymentStatus.PROCESSING;
+    }
+
+    public void markAsSucceeded(String providerReference) {
+        if (status != PaymentStatus.PROCESSING) {
+            throw new InvalidPaymentStateException("Only processing payments can be marked as succeeded.");
+        }
+        status = PaymentStatus.SUCCEEDED;
+        providerRef = providerReference;
+    }
+
+    public void markAsFailed(Integer code, String message) {
+        if (status != PaymentStatus.PROCESSING) {
+            throw new InvalidPaymentStateException("Only processing payments can fail.");
+        }
+        status = PaymentStatus.FAILED;
+        failureCode = code;
+        failureMessage = message;
+    }
+
+    public void cancel() {
+        if (status != PaymentStatus.CREATED && status != PaymentStatus.PROCESSING) {
+            throw new InvalidPaymentStateException("Only created or processing payments can be cancelled.");
+        }
+        status = PaymentStatus.CANCELLED;
     }
 
     public static final class Builder {

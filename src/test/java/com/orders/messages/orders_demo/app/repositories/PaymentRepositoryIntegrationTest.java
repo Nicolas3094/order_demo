@@ -11,6 +11,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
@@ -34,6 +36,7 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         assertThat(result.getAmount()).isEqualByComparingTo("247.00");
         assertThat(result.getProvider()).isEqualTo(PaymentProvider.STRIPE);
         assertThat(result.getStatus()).isEqualTo(PaymentStatus.CREATED);
+        assertThat(result.getVersion()).isZero();
         assertThat(result.getIdempotencyKey()).isEqualTo(saved.getIdempotencyKey());
         assertThat(result.getProviderRef()).isNull();
         assertThat(result.getFailureCode()).isNull();
@@ -103,13 +106,14 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         entityManager.clear();
         payment = paymentRepository.findById(id).orElseThrow();
 
-        paymentRepository.startProcessingIfAvailable(id);
+        payment.startProcessing();
+        paymentRepository.saveAndFlush(payment);
         entityManager.clear();
         var processing = paymentRepository.findById(id).orElseThrow();
         assertThat(processing.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
 
-        assertThat(paymentRepository.markAsSucceededIfAvailable(payment.getIdempotencyKey(), "provider-ref-123"))
-                .isEqualTo(1);
+        processing.markAsSucceeded("provider-ref-123");
+        paymentRepository.saveAndFlush(processing);
         entityManager.clear();
 
         var result = paymentRepository.findById(id).orElseThrow();
@@ -124,9 +128,10 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         entityManager.clear();
         payment = paymentRepository.findById(id).orElseThrow();
 
-        paymentRepository.startProcessingIfAvailable(id);
-        assertThat(paymentRepository.markAsFailedIfAvailable(payment.getIdempotencyKey(), 402, "Payment declined."))
-                .isEqualTo(1);
+        payment.startProcessing();
+        paymentRepository.saveAndFlush(payment);
+        payment.markAsFailed(402, "Payment declined.");
+        paymentRepository.saveAndFlush(payment);
         entityManager.clear();
 
         var result = paymentRepository.findById(id).orElseThrow();
@@ -175,241 +180,254 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldStartProcessingOnlyTheRequestedCreatedPaymentAndReportOneUpdatedRow() {
-        var requestedPayment = paymentRepository.saveAndFlush(createPayment(UUID.randomUUID()));
-        var otherPayment = paymentRepository.saveAndFlush(createPayment(UUID.randomUUID()));
+    void shouldPersistProcessingAndIncrementOnlyTheRequestedPaymentVersion() {
+        var requestedPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED));
+        var otherPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED));
+        Long initialVersion = requestedPayment.getVersion();
 
-        int updatedRows = paymentRepository.startProcessingIfAvailable(requestedPayment.getId());
+        requestedPayment.startProcessing();
+        paymentRepository.saveAndFlush(requestedPayment);
         entityManager.clear();
 
-        assertThat(updatedRows).isEqualTo(1);
-        var processingPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
-        assertThat(processingPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
-        assertThat(processingPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
-        assertThat(processingPayment.getIdempotencyKey()).isEqualTo(requestedPayment.getIdempotencyKey());
-        assertThat(processingPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
-        assertThat(paymentRepository.findById(otherPayment.getId()).orElseThrow().getStatus())
-                .isEqualTo(PaymentStatus.CREATED);
+        var updatedPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(updatedPayment.getVersion()).isEqualTo(initialVersion + 1);
+        assertThat(updatedPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
+        assertThat(updatedPayment.getIdempotencyKey()).isEqualTo(requestedPayment.getIdempotencyKey());
+        assertThat(updatedPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
+        var unchangedPayment = paymentRepository.findById(otherPayment.getId()).orElseThrow();
+        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.CREATED);
+        assertThat(unchangedPayment.getVersion()).isZero();
     }
 
     @ParameterizedTest
     @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "CREATED")
-    void shouldRejectStartingProcessingForNonCreatedPaymentWithoutChangingIt(PaymentStatus initialStatus) {
+    void shouldRejectInvalidProcessingWithoutChangingPersistedStateVersionOrTimestamp(PaymentStatus initialStatus) {
         var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
         Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+        Long originalVersion = originalPayment.getVersion();
 
-        int updatedRows = paymentRepository.startProcessingIfAvailable(originalPayment.getId());
+        assertThatThrownBy(() -> originalPayment.startProcessing())
+                .isInstanceOf(InvalidPaymentStateException.class)
+                .hasMessage("Only created payments can start processing.");
         entityManager.clear();
 
-        assertThat(updatedRows).isZero();
         var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
         assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalVersion);
         assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
     }
 
     @Test
-    void shouldReportZeroUpdatedRowsWhenStartingProcessingForMissingPayment() {
-        assertThat(paymentRepository.startProcessingIfAvailable(UUID.randomUUID())).isZero();
-    }
+    void shouldUpdateModificationTimestampWhenProcessingIsPersisted() {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED));
+        Instant previousUpdatedAt = setUpdatedAtInPast(originalPayment.getId());
+        var managedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
 
-    @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "PROCESSING" })
-    void shouldCancelOnlyTheRequestedEligiblePaymentAndReportOneUpdatedRow(PaymentStatus initialStatus) {
-        var requestedPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
-        var otherPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
-
-        int updatedRows = paymentRepository.cancelIfAvailable(requestedPayment.getId());
+        managedPayment.startProcessing();
+        paymentRepository.saveAndFlush(managedPayment);
         entityManager.clear();
 
-        assertThat(updatedRows).isEqualTo(1);
-        var cancelledPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
-        assertThat(cancelledPayment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
-        assertThat(cancelledPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
-        assertThat(cancelledPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
-        assertThat(paymentRepository.findById(otherPayment.getId()).orElseThrow().getStatus())
-                .isEqualTo(initialStatus);
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "SUCCEEDED", "FAILED", "CANCELLED" })
-    void shouldRejectCancellingTerminalPaymentWithoutChangingIt(PaymentStatus initialStatus) {
-        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
-        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
-
-        int updatedRows = paymentRepository.cancelIfAvailable(originalPayment.getId());
-        entityManager.clear();
-
-        assertThat(updatedRows).isZero();
         var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
-        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
-        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
+        assertThat(persistedPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
+        assertThat(persistedPayment.getCreatedAt()).isEqualTo(originalPayment.getCreatedAt());
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalPayment.getVersion() + 1);
     }
 
     @Test
-    void shouldReportZeroUpdatedRowsWhenCancellingMissingPayment() {
-        assertThat(paymentRepository.cancelIfAvailable(UUID.randomUUID())).isZero();
-    }
-
-    @Test
-    void shouldUpdateModificationTimestampWhenProcessingStarts() {
-        UUID paymentId = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED)).getId();
-        Instant previousUpdatedAt = setUpdatedAtInPast(paymentId);
-
-        int updatedRows = paymentRepository.startProcessingIfAvailable(paymentId);
-        entityManager.clear();
-
-        assertThat(updatedRows).isEqualTo(1);
-        assertThat(paymentRepository.findById(paymentId).orElseThrow().getUpdatedAt()).isAfter(previousUpdatedAt);
-    }
-
-    @Test
-    void shouldUpdateModificationTimestampWhenPaymentIsCancelled() {
-        UUID paymentId = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED)).getId();
-        Instant previousUpdatedAt = setUpdatedAtInPast(paymentId);
-
-        int updatedRows = paymentRepository.cancelIfAvailable(paymentId);
-        entityManager.clear();
-
-        assertThat(updatedRows).isEqualTo(1);
-        assertThat(paymentRepository.findById(paymentId).orElseThrow().getUpdatedAt()).isAfter(previousUpdatedAt);
-    }
-
-    @Test
-    void shouldMarkOnlyPaymentWithRequestedIdempotencyKeyAsSucceeded() {
-        UUID orderId = UUID.randomUUID();
-        var requestedPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
-                .orderId(orderId).status(PaymentStatus.PROCESSING).idempotencyKey(UUID.randomUUID().toString())
-                .amount(new BigDecimal("247.00")).provider(PaymentProvider.STRIPE).build());
-        var otherPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
-                .orderId(orderId).status(PaymentStatus.PROCESSING).idempotencyKey(UUID.randomUUID().toString())
-                .amount(new BigDecimal("247.00")).provider(PaymentProvider.STRIPE).build());
-
-        int updatedRows = paymentRepository.markAsSucceededIfAvailable(requestedPayment.getIdempotencyKey(), "success-ref");
-        entityManager.clear();
-
-        assertThat(updatedRows).isEqualTo(1);
-        var succeededPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
-        assertThat(succeededPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
-        assertThat(succeededPayment.getProviderRef()).isEqualTo("success-ref");
-        assertThat(succeededPayment.getOrderId()).isEqualTo(orderId);
-        assertThat(succeededPayment.getAmount()).isEqualByComparingTo("247.00");
-        assertThat(succeededPayment.getProvider()).isEqualTo(PaymentProvider.STRIPE);
-        var unchangedPayment = paymentRepository.findById(otherPayment.getId()).orElseThrow();
-        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
-        assertThat(unchangedPayment.getProviderRef()).isNull();
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
-    void shouldRejectSuccessForNonProcessingPaymentWithoutChangingReferenceOrTimestamp(PaymentStatus initialStatus) {
-        var originalPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
-                .orderId(UUID.randomUUID()).status(initialStatus).providerRef("original-reference")
-                .idempotencyKey(UUID.randomUUID().toString()).amount(new BigDecimal("247.00")).build());
-        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
-
-        int updatedRows = paymentRepository.markAsSucceededIfAvailable(originalPayment.getIdempotencyKey(), "new-reference");
-        entityManager.clear();
-
-        assertThat(updatedRows).isZero();
-        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
-        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
-        assertThat(persistedPayment.getProviderRef()).isEqualTo("original-reference");
-        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
-    }
-
-    @Test
-    void shouldReportZeroUpdatedRowsForSuccessWithUnknownIdempotencyKey() {
-        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
-
-        int updatedRows = paymentRepository.markAsSucceededIfAvailable(UUID.randomUUID().toString(), "success-ref");
-        entityManager.clear();
-
-        assertThat(updatedRows).isZero();
-        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
-        assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
-        assertThat(persistedPayment.getProviderRef()).isNull();
-    }
-
-    @Test
-    void shouldUpdateModificationTimestampWhenPaymentSucceeds() {
-        var processingPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
-        Instant previousUpdatedAt = setUpdatedAtInPast(processingPayment.getId());
-
-        int updatedRows = paymentRepository.markAsSucceededIfAvailable(processingPayment.getIdempotencyKey(), "success-ref");
-        entityManager.clear();
-
-        assertThat(updatedRows).isEqualTo(1);
-        var succeededPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
-        assertThat(succeededPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
-        assertThat(succeededPayment.getCreatedAt()).isEqualTo(processingPayment.getCreatedAt());
-    }
-
-    @Test
-    void shouldMarkOnlyPaymentWithRequestedIdempotencyKeyAsFailed() {
+    void shouldPersistCancellationAndIncrementOnlyTheRequestedPaymentVersion() {
         var requestedPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
         var otherPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Long initialVersion = requestedPayment.getVersion();
 
-        int updatedRows = paymentRepository.markAsFailedIfAvailable(requestedPayment.getIdempotencyKey(), 402, "Declined");
+        requestedPayment.cancel();
+        paymentRepository.saveAndFlush(requestedPayment);
         entityManager.clear();
 
-        assertThat(updatedRows).isEqualTo(1);
-        var failedPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
-        assertThat(failedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
-        assertThat(failedPayment.getFailureCode()).isEqualTo(402);
-        assertThat(failedPayment.getFailureMessage()).isEqualTo("Declined");
-        assertThat(failedPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
-        assertThat(failedPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
+        var updatedPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(updatedPayment.getVersion()).isEqualTo(initialVersion + 1);
+        assertThat(updatedPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
+        assertThat(updatedPayment.getIdempotencyKey()).isEqualTo(requestedPayment.getIdempotencyKey());
+        assertThat(updatedPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
         var unchangedPayment = paymentRepository.findById(otherPayment.getId()).orElseThrow();
         assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
-        assertThat(unchangedPayment.getFailureCode()).isNull();
-        assertThat(unchangedPayment.getFailureMessage()).isNull();
+        assertThat(unchangedPayment.getVersion()).isZero();
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
-    void shouldRejectFailureForNonProcessingPaymentWithoutChangingDetailsOrTimestamp(PaymentStatus initialStatus) {
-        var originalPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
-                .orderId(UUID.randomUUID()).status(initialStatus).failureCode(402).failureMessage("Original failure")
-                .idempotencyKey(UUID.randomUUID().toString()).amount(new BigDecimal("247.00")).build());
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = { "CREATED", "PROCESSING" })
+    void shouldRejectInvalidCancellationWithoutChangingPersistedStateVersionOrTimestamp(PaymentStatus initialStatus) {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
         Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+        Long originalVersion = originalPayment.getVersion();
 
-        int updatedRows = paymentRepository.markAsFailedIfAvailable(originalPayment.getIdempotencyKey(), 500, "New failure");
+        assertThatThrownBy(() -> originalPayment.cancel())
+                .isInstanceOf(InvalidPaymentStateException.class)
+                .hasMessage("Only created or processing payments can be cancelled.");
         entityManager.clear();
 
-        assertThat(updatedRows).isZero();
         var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
         assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
-        assertThat(persistedPayment.getFailureCode()).isEqualTo(402);
-        assertThat(persistedPayment.getFailureMessage()).isEqualTo("Original failure");
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalVersion);
         assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
     }
 
     @Test
-    void shouldReportZeroUpdatedRowsForFailureWithUnknownIdempotencyKey() {
-        var processingPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+    void shouldUpdateModificationTimestampWhenCancellationIsPersisted() {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Instant previousUpdatedAt = setUpdatedAtInPast(originalPayment.getId());
+        var managedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
 
-        int updatedRows = paymentRepository.markAsFailedIfAvailable(UUID.randomUUID().toString(), 402, "Declined");
+        managedPayment.cancel();
+        paymentRepository.saveAndFlush(managedPayment);
         entityManager.clear();
 
-        assertThat(updatedRows).isZero();
-        var unchangedPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
-        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
-        assertThat(unchangedPayment.getFailureCode()).isNull();
-        assertThat(unchangedPayment.getFailureMessage()).isNull();
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
+        assertThat(persistedPayment.getCreatedAt()).isEqualTo(originalPayment.getCreatedAt());
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalPayment.getVersion() + 1);
     }
 
     @Test
-    void shouldUpdateModificationTimestampWhenPaymentFails() {
-        var processingPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
-        Instant previousUpdatedAt = setUpdatedAtInPast(processingPayment.getId());
+    void shouldPersistSuccessAndIncrementOnlyTheRequestedPaymentVersion() {
+        var requestedPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        var otherPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Long initialVersion = requestedPayment.getVersion();
 
-        int updatedRows = paymentRepository.markAsFailedIfAvailable(processingPayment.getIdempotencyKey(), 402, "Declined");
+        requestedPayment.markAsSucceeded("success-ref");
+        paymentRepository.saveAndFlush(requestedPayment);
         entityManager.clear();
 
-        assertThat(updatedRows).isEqualTo(1);
-        var failedPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
-        assertThat(failedPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
-        assertThat(failedPayment.getCreatedAt()).isEqualTo(processingPayment.getCreatedAt());
+        var updatedPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(updatedPayment.getVersion()).isEqualTo(initialVersion + 1);
+        assertThat(updatedPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
+        assertThat(updatedPayment.getIdempotencyKey()).isEqualTo(requestedPayment.getIdempotencyKey());
+        assertThat(updatedPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
+        var unchangedPayment = paymentRepository.findById(otherPayment.getId()).orElseThrow();
+        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(unchangedPayment.getVersion()).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
+    void shouldRejectInvalidSuccessWithoutChangingPersistedStateVersionOrTimestamp(PaymentStatus initialStatus) {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
+        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+        Long originalVersion = originalPayment.getVersion();
+
+        assertThatThrownBy(() -> originalPayment.markAsSucceeded("success-ref"))
+                .isInstanceOf(InvalidPaymentStateException.class)
+                .hasMessage("Only processing payments can be marked as succeeded.");
+        entityManager.clear();
+
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalVersion);
+        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
+    }
+
+    @Test
+    void shouldUpdateModificationTimestampWhenSuccessIsPersisted() {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Instant previousUpdatedAt = setUpdatedAtInPast(originalPayment.getId());
+        var managedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+
+        managedPayment.markAsSucceeded("success-ref");
+        paymentRepository.saveAndFlush(managedPayment);
+        entityManager.clear();
+
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
+        assertThat(persistedPayment.getCreatedAt()).isEqualTo(originalPayment.getCreatedAt());
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalPayment.getVersion() + 1);
+    }
+
+    @Test
+    void shouldPersistFailureAndIncrementOnlyTheRequestedPaymentVersion() {
+        var requestedPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        var otherPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Long initialVersion = requestedPayment.getVersion();
+
+        requestedPayment.markAsFailed(402, "Declined");
+        paymentRepository.saveAndFlush(requestedPayment);
+        entityManager.clear();
+
+        var updatedPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(updatedPayment.getVersion()).isEqualTo(initialVersion + 1);
+        assertThat(updatedPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
+        assertThat(updatedPayment.getIdempotencyKey()).isEqualTo(requestedPayment.getIdempotencyKey());
+        assertThat(updatedPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
+        var unchangedPayment = paymentRepository.findById(otherPayment.getId()).orElseThrow();
+        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(unchangedPayment.getVersion()).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
+    void shouldRejectInvalidFailureWithoutChangingPersistedStateVersionOrTimestamp(PaymentStatus initialStatus) {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
+        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+        Long originalVersion = originalPayment.getVersion();
+
+        assertThatThrownBy(() -> originalPayment.markAsFailed(402, "Declined"))
+                .isInstanceOf(InvalidPaymentStateException.class)
+                .hasMessage("Only processing payments can fail.");
+        entityManager.clear();
+
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalVersion);
+        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
+    }
+
+    @Test
+    void shouldUpdateModificationTimestampWhenFailureIsPersisted() {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Instant previousUpdatedAt = setUpdatedAtInPast(originalPayment.getId());
+        var managedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+
+        managedPayment.markAsFailed(402, "Declined");
+        paymentRepository.saveAndFlush(managedPayment);
+        entityManager.clear();
+
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
+        assertThat(persistedPayment.getCreatedAt()).isEqualTo(originalPayment.getCreatedAt());
+        assertThat(persistedPayment.getVersion()).isEqualTo(originalPayment.getVersion() + 1);
+    }
+
+    @Test
+    void shouldRejectSavingDetachedPaymentWithStaleVersion() {
+        var stalePayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED));
+        entityManager.detach(stalePayment);
+        var currentPayment = paymentRepository.findById(stalePayment.getId()).orElseThrow();
+        currentPayment.startProcessing();
+        paymentRepository.saveAndFlush(currentPayment);
+        entityManager.clear();
+
+        stalePayment.cancel();
+
+        assertThatThrownBy(() -> paymentRepository.saveAndFlush(stalePayment))
+                .isInstanceOf(OptimisticLockingFailureException.class);
+    }
+
+    @Test
+    void shouldDefaultVersionToZeroForRowsInsertedWithoutVersion() {
+        UUID paymentId = UUID.randomUUID();
+        entityManager.createNativeQuery("""
+                INSERT INTO payment_attempt (id, order_id, amount, provider, status, idempotency_key)
+                VALUES (:paymentId, :orderId, 247.00, 'STRIPE', 'CREATED', :idempotencyKey)
+                """)
+                .setParameter("paymentId", paymentId)
+                .setParameter("orderId", UUID.randomUUID())
+                .setParameter("idempotencyKey", UUID.randomUUID().toString())
+                .executeUpdate();
+        entityManager.clear();
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getVersion()).isZero();
     }
 
     private Instant setUpdatedAtInPast(UUID paymentId) {

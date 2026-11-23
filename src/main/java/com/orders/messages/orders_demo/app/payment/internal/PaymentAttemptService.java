@@ -19,7 +19,6 @@ import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPa
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 
-import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
 @Service
@@ -30,16 +29,13 @@ public class PaymentAttemptService {
     private final CustomerInternalApi customerInternalApi;
     private final ProductInternalApi productInternalApi;
 
-    private final EntityManager entityManager;
-
     public PaymentAttemptService(PaymentAttemptRepository paymentAttemptRepository,
             OrderInternalApi orderInternalApi, CustomerInternalApi customerInternalApi,
-            ProductInternalApi productInternalApi, EntityManager entityManager) {
+            ProductInternalApi productInternalApi) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.orderInternalApi = orderInternalApi;
         this.customerInternalApi = customerInternalApi;
         this.productInternalApi = productInternalApi;
-        this.entityManager = entityManager;
     }
 
     /**
@@ -138,14 +134,9 @@ public class PaymentAttemptService {
         UUID customerId = orderInternalApi.getOrderById(orderId).customerId();
         validateCustomerCanStartPayment(customerId);
 
-        int updatedRows = paymentAttemptRepository.startProcessingIfAvailable(paymentId);
+        paymentAttempt.startProcessing();
 
-        if (updatedRows == 0) {
-            throw new InvalidPaymentStateException("Only created payments can start processing.");
-        }
-        entityManager.refresh(paymentAttempt);
-
-        return PaymentAttemptMapper.toResponse(paymentAttempt);
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(paymentAttempt));
     }
 
     /**
@@ -175,19 +166,11 @@ public class PaymentAttemptService {
             return PaymentAttemptMapper.toResponse(payment);
         }
 
-        int updatedRow = paymentAttemptRepository.markAsSucceededIfAvailable(
-                /* idempotencyKey= */payment.getIdempotencyKey(),
-                /* providerRef= */ providerRef);
-
-        if (updatedRow == 0) {
-            throw new InvalidPaymentStateException("Only processing payments can be marked as succeeded.");
-        }
-
-        entityManager.refresh(payment);
+        payment.markAsSucceeded(providerRef);
 
         orderInternalApi.markAsPaid(orderId);
 
-        return PaymentAttemptMapper.toResponse(payment);
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
     }
 
     /**
@@ -216,19 +199,13 @@ public class PaymentAttemptService {
             return PaymentAttemptMapper.toResponse(payment);
         }
 
-        int updatedRows = paymentAttemptRepository.markAsFailedIfAvailable(payment.getIdempotencyKey(), code, errorMessage);
-
-        if (updatedRows == 0) {
-            throw new InvalidPaymentStateException("Only processing payments can fail.");
-        }
-
-        entityManager.refresh(payment);
+        payment.markAsFailed(code, errorMessage);
 
         orderInternalApi.markAsPending(orderId);
 
         increaseStock(orderId);
 
-        return PaymentAttemptMapper.toResponse(payment);
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
     }
 
     /**
@@ -246,20 +223,13 @@ public class PaymentAttemptService {
     public PaymentAttemptResponse markAsCancelled(UUID orderId, UUID paymentId) {
         PaymentAttemptEntity paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
-        int updatedRows = paymentAttemptRepository.cancelIfAvailable(paymentId);
-
-        if (updatedRows == 0) {
-            throw new InvalidPaymentStateException("Only created or processing payments can be cancelled.");
-
-        }
-
-        entityManager.refresh(paymentAttempt);
+        paymentAttempt.cancel();
 
         increaseStock(orderId);
 
         orderInternalApi.markAsPending(orderId);
 
-        return PaymentAttemptMapper.toResponse(paymentAttempt);
+        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(paymentAttempt));
     }
 
     /** Validates the customer independently of the order's payment state. */

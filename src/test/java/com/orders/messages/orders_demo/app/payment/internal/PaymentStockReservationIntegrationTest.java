@@ -7,6 +7,8 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
+import jakarta.persistence.OptimisticLockException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -311,8 +313,9 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                 paymentSnapshotRead.countDown();
                 awaitPaymentSignal(cancellationCommitted, "Cancellation must commit before processing is attempted");
 
-                // Aunque los objetos cargados tengan el estado anterior, el UPDATE debe rechazarlo.
+                // @Version debe rechazar la escritura aunque los objetos conserven el estado anterior.
                 paymentService.startProcessing(orderId, paymentId);
+                entityManager.flush();
             }));
             awaitPaymentSignal(paymentSnapshotRead, "Payment and order must be read before cancellation");
 
@@ -328,8 +331,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                     .isEqualTo(OrderStatus.PENDING_PAYMENT);
             assertThat(readAvailableStock(productId)).isEqualTo(5L);
             assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
-            assertThat(processingFailure).isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
+            assertPaymentOptimisticLockFailure(processingFailure);
         } finally {
             cancellationCommitted.countDown();
             paymentExecutor.shutdownNow();
@@ -395,32 +397,41 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
     }
 
     @Test
-    void shouldAllowCancellationFromStaleCreatedSnapshotAfterProcessingCommits() throws Exception {
+    void shouldRejectStaleCancellationAfterProcessingCommitsAndAllowFreshRetry() throws Exception {
         UUID productId = persistProduct("SKU-PROCESSING-FIRST", 5L);
         UUID orderId = persistOrder("SKU-PROCESSING-FIRST", 2L);
         var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
         UUID paymentId = createdPaymentResponse.id();
+        Long initialPaymentVersion = paymentRepository.findById(paymentId).orElseThrow().getVersion();
         var cancellationSnapshotRead = new CountDownLatch(1);
         var processingCommitted = new CountDownLatch(1);
         var paymentExecutor = Executors.newSingleThreadExecutor();
 
         try {
-            var cancellationFuture = paymentExecutor.submit(() -> transactionTemplate.execute(status -> {
+            var cancellationFuture = paymentExecutor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
                 var paymentBeforeProcessing = paymentRepository.findById(paymentId).orElseThrow();
                 assertThat(paymentBeforeProcessing.getStatus()).isEqualTo(PaymentStatus.CREATED);
                 cancellationSnapshotRead.countDown();
                 awaitPaymentSignal(processingCommitted, "Processing must commit before cancellation is attempted");
-                return paymentService.markAsCancelled(orderId, paymentId);
+                paymentService.markAsCancelled(orderId, paymentId);
+                entityManager.flush();
             }));
             awaitPaymentSignal(cancellationSnapshotRead, "Payment must be read before processing starts");
 
-            var processingPaymentResponse = paymentService.startProcessing(orderId, paymentId);
-            assertThat(processingPaymentResponse.status()).isEqualTo(PaymentStatus.PROCESSING);
+            paymentService.startProcessing(orderId, paymentId);
             processingCommitted.countDown();
-            var cancelledPaymentResponse = cancellationFuture.get(20, TimeUnit.SECONDS);
+            Throwable cancellationFailure = catchThrowable(() -> cancellationFuture.get(20, TimeUnit.SECONDS));
+
+            assertPaymentOptimisticLockFailure(cancellationFailure);
+            var processingPayment = paymentRepository.findById(paymentId).orElseThrow();
+            assertThat(processingPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+            assertThat(processingPayment.getVersion()).isEqualTo(initialPaymentVersion + 1);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+            assertThat(readAvailableStock(productId)).isEqualTo(3L);
+
+            var cancelledPaymentResponse = paymentService.markAsCancelled(orderId, paymentId);
 
             assertThat(cancelledPaymentResponse.status()).isEqualTo(PaymentStatus.CANCELLED);
-            assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
             assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
             assertThat(readAvailableStock(productId)).isEqualTo(5L);
             assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
@@ -452,6 +463,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                 awaitPaymentSignal(cancellationCommitted, "Cancellation must commit before success is attempted");
 
                 paymentService.markAsSucceeded(orderId, paymentId, "stale-success-ref");
+                entityManager.flush();
             }));
             awaitPaymentSignal(successSnapshotRead, "Payment and order must be read before cancellation");
 
@@ -459,9 +471,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
             cancellationCommitted.countDown();
             Throwable successFailure = catchThrowable(() -> successFuture.get(20, TimeUnit.SECONDS));
 
-            assertThat(successFailure).isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
-            assertThat(successFailure.getCause()).hasMessage("Only processing payments can be marked as succeeded.");
+            assertPaymentOptimisticLockFailure(successFailure);
             var cancelledPayment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(cancelledPayment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
             assertThat(cancelledPayment.getProviderRef()).isNull();
@@ -496,6 +506,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                 awaitPaymentSignal(successCommitted, "Success must commit before cancellation is attempted");
 
                 paymentService.markAsCancelled(orderId, paymentId);
+                entityManager.flush();
             }));
             awaitPaymentSignal(cancellationSnapshotRead, "Payment and order must be read before success");
 
@@ -503,9 +514,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
             successCommitted.countDown();
             Throwable cancellationFailure = catchThrowable(() -> cancellationFuture.get(20, TimeUnit.SECONDS));
 
-            assertThat(cancellationFailure).isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
-            assertThat(cancellationFailure.getCause()).hasMessage("Only created or processing payments can be cancelled.");
+            assertPaymentOptimisticLockFailure(cancellationFailure);
             var succeededPayment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(succeededPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
             assertThat(succeededPayment.getProviderRef()).isEqualTo("committed-success-ref");
@@ -558,6 +567,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                 awaitPaymentSignal(cancellationCommitted, "Committed transition must precede the stale update");
 
                 paymentService.markAsFailed(orderId, paymentId, 402, "Declined");
+                entityManager.flush();
             }));
             awaitPaymentSignal(paymentSnapshotRead, "Payment and order must be read before the competing transition");
 
@@ -565,9 +575,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
             cancellationCommitted.countDown();
             Throwable failureFailure = catchThrowable(() -> failureFuture.get(20, TimeUnit.SECONDS));
 
-            assertThat(failureFailure).isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
-            assertThat(failureFailure.getCause()).hasMessage("Only processing payments can fail.");
+            assertPaymentOptimisticLockFailure(failureFailure);
             var persistedPayment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
             assertThat(persistedPayment.getFailureCode()).isNull();
@@ -604,6 +612,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                 awaitPaymentSignal(successCommitted, "Committed transition must precede the stale update");
 
                 paymentService.markAsFailed(orderId, paymentId, 402, "Declined");
+                entityManager.flush();
             }));
             awaitPaymentSignal(paymentSnapshotRead, "Payment and order must be read before the competing transition");
 
@@ -611,9 +620,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
             successCommitted.countDown();
             Throwable failureFailure = catchThrowable(() -> failureFuture.get(20, TimeUnit.SECONDS));
 
-            assertThat(failureFailure).isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
-            assertThat(failureFailure.getCause()).hasMessage("Only processing payments can fail.");
+            assertPaymentOptimisticLockFailure(failureFailure);
             var persistedPayment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
             assertThat(persistedPayment.getFailureCode()).isNull();
@@ -650,6 +657,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                 awaitPaymentSignal(failureCommitted, "Committed transition must precede the stale update");
 
                 paymentService.markAsSucceeded(orderId, paymentId, "stale-success-ref");
+                entityManager.flush();
             }));
             awaitPaymentSignal(paymentSnapshotRead, "Payment and order must be read before the competing transition");
 
@@ -657,9 +665,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
             failureCommitted.countDown();
             Throwable successFailure = catchThrowable(() -> successFuture.get(20, TimeUnit.SECONDS));
 
-            assertThat(successFailure).isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
-            assertThat(successFailure.getCause()).hasMessage("Only processing payments can be marked as succeeded.");
+            assertPaymentOptimisticLockFailure(successFailure);
             var persistedPayment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
             assertThat(persistedPayment.getFailureCode()).isEqualTo(402);
@@ -696,6 +702,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
                 awaitPaymentSignal(failureCommitted, "Committed transition must precede the stale update");
 
                 paymentService.markAsCancelled(orderId, paymentId);
+                entityManager.flush();
             }));
             awaitPaymentSignal(paymentSnapshotRead, "Payment and order must be read before the competing transition");
 
@@ -703,9 +710,7 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
             failureCommitted.countDown();
             Throwable cancellationFailure = catchThrowable(() -> cancellationFuture.get(20, TimeUnit.SECONDS));
 
-            assertThat(cancellationFailure).isInstanceOf(ExecutionException.class)
-                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
-            assertThat(cancellationFailure.getCause()).hasMessage("Only created or processing payments can be cancelled.");
+            assertPaymentOptimisticLockFailure(cancellationFailure);
             var persistedPayment = paymentRepository.findById(paymentId).orElseThrow();
             assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
             assertThat(persistedPayment.getFailureCode()).isEqualTo(402);
@@ -784,6 +789,12 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
         assertThat(processingPayment.getFailureMessage()).isNull();
         assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
         assertThat(readAvailableStock(productId)).isEqualTo(3L);
+    }
+
+    private void assertPaymentOptimisticLockFailure(Throwable paymentFailure) {
+        assertThat(paymentFailure).isInstanceOf(ExecutionException.class);
+        assertThat(paymentFailure.getCause())
+                .isInstanceOfAny(OptimisticLockException.class, OptimisticLockingFailureException.class);
     }
 
     private void awaitPaymentSignal(CountDownLatch paymentSignal, String description) {

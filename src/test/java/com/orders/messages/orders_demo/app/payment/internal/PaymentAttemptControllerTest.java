@@ -1,5 +1,8 @@
 package com.orders.messages.orders_demo.app.payment.internal;
 
+import jakarta.persistence.OptimisticLockException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -47,6 +50,30 @@ public class PaymentAttemptControllerTest {
     public void setup() {
         orderId = UUID.randomUUID();
         paymentId = UUID.randomUUID();
+    }
+
+    @Test
+    void startProcessing_WhenJpaVersionIsStale_ShouldReturn409() throws Exception {
+        when(paymentAttemptService.startProcessing(orderId, paymentId))
+                .thenThrow(new OptimisticLockException("Stale payment"));
+
+        mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/processing", orderId, paymentId))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Resource was modified by another transaction. Please retry."));
+    }
+
+    @Test
+    void startProcessing_WhenSpringReportsStaleVersion_ShouldReturn409() throws Exception {
+        when(paymentAttemptService.startProcessing(orderId, paymentId))
+                .thenThrow(new ObjectOptimisticLockingFailureException(PaymentAttemptEntity.class, paymentId));
+
+        mvc.perform(patch("/api/v1/orders/{orderId}/payments/{paymentId}/processing", orderId, paymentId))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Resource was modified by another transaction. Please retry."));
     }
 
     @Test
