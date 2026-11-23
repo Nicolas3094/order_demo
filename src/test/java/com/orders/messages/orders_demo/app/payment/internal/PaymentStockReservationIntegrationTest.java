@@ -4,12 +4,16 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,10 +28,12 @@ import com.orders.messages.orders_demo.app.order.internal.OrderItemEntity;
 import com.orders.messages.orders_demo.app.order.internal.OrderRepository;
 import com.orders.messages.orders_demo.app.order.internal.OrderStatus;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
+import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 import com.orders.messages.orders_demo.app.product.internal.ProductEntity;
 import com.orders.messages.orders_demo.app.product.internal.ProductRepository;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InvalidProductException;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 
 class PaymentStockReservationIntegrationTest extends PostgresContainer {
     @Autowired
@@ -280,6 +286,157 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
         } finally {
             checkoutExecutor.shutdownNow();
             assertThat(checkoutExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void shouldRejectStaleProcessingWhenPaymentIsCancelledConcurrentlyWithoutReservingStockAgain() throws Exception {
+        UUID productId = persistProduct("SKU-PAYMENT-RACE", 5L);
+        UUID orderId = persistOrder("SKU-PAYMENT-RACE", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+        assertThat(readAvailableStock(productId)).isEqualTo(3L);
+
+        var paymentSnapshotRead = new CountDownLatch(1);
+        var cancellationCommitted = new CountDownLatch(1);
+        var paymentExecutor = Executors.newSingleThreadExecutor();
+
+        try {
+            var processingFuture = paymentExecutor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                // Carga ambos objetos antes de que la otra transacción los modifique.
+                var paymentBeforeCancellation = paymentRepository.findById(paymentId).orElseThrow();
+                var orderBeforeCancellation = orderRepository.findById(orderId).orElseThrow();
+                assertThat(paymentBeforeCancellation.getStatus()).isEqualTo(PaymentStatus.CREATED);
+                assertThat(orderBeforeCancellation.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+                paymentSnapshotRead.countDown();
+                awaitPaymentSignal(cancellationCommitted, "Cancellation must commit before processing is attempted");
+
+                // Aunque los objetos cargados tengan el estado anterior, el UPDATE debe rechazarlo.
+                paymentService.startProcessing(orderId, paymentId);
+            }));
+            awaitPaymentSignal(paymentSnapshotRead, "Payment and order must be read before cancellation");
+
+            paymentService.markAsCancelled(orderId, paymentId);
+            cancellationCommitted.countDown();
+
+            Throwable processingFailure = catchThrowable(() -> processingFuture.get(20, TimeUnit.SECONDS));
+
+            assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus())
+                    .as("A stale processing update must not overwrite the committed cancellation")
+                    .isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus())
+                    .isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(readAvailableStock(productId)).isEqualTo(5L);
+            assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+            assertThat(processingFailure).isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
+        } finally {
+            cancellationCommitted.countDown();
+            paymentExecutor.shutdownNow();
+            assertThat(paymentExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void shouldRejectRepeatedCancellationWithoutReleasingReservedStockTwice() {
+        UUID productId = persistProduct("SKU-REPEATED-CANCELLATION", 5L);
+        UUID orderId = persistOrder("SKU-REPEATED-CANCELLATION", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+        paymentService.markAsCancelled(orderId, paymentId);
+
+        assertThatThrownBy(() -> paymentService.markAsCancelled(orderId, paymentId))
+                .isInstanceOf(InvalidPaymentStateException.class)
+                .hasMessage("Only created or processing payments can be cancelled.");
+
+        assertThat(readAvailableStock(productId)).isEqualTo(5L);
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+        assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+    }
+
+    @Test
+    void shouldRollBackCancellationAndStockRestorationWhenCallerFails() {
+        UUID productId = persistProduct("SKU-CANCELLATION-ROLLBACK", 5L);
+        UUID orderId = persistOrder("SKU-CANCELLATION-ROLLBACK", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            paymentService.markAsCancelled(orderId, paymentId);
+            entityManager.flush();
+            entityManager.clear();
+            assertThat(readAvailableStock(productId)).isEqualTo(5L);
+            assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            throw new IllegalStateException("Caller failed.");
+        })).isInstanceOf(IllegalStateException.class).hasMessage("Caller failed.");
+
+        assertThat(readAvailableStock(productId)).isEqualTo(3L);
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CREATED);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+    }
+
+    @Test
+    void shouldRollBackCancellationWhenReservedProductNoLongerExists() {
+        UUID productId = persistProduct("SKU-MISSING-ON-CANCEL", 5L);
+        UUID orderId = persistOrder("SKU-MISSING-ON-CANCEL", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+        productRepository.deleteById(productId);
+
+        assertThatThrownBy(() -> paymentService.markAsCancelled(orderId, paymentId))
+                .isInstanceOf(ProductNotFoundException.class);
+
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CREATED);
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+        assertThat(productRepository.findById(productId)).isEmpty();
+    }
+
+    @Test
+    void shouldAllowCancellationFromStaleCreatedSnapshotAfterProcessingCommits() throws Exception {
+        UUID productId = persistProduct("SKU-PROCESSING-FIRST", 5L);
+        UUID orderId = persistOrder("SKU-PROCESSING-FIRST", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+        var cancellationSnapshotRead = new CountDownLatch(1);
+        var processingCommitted = new CountDownLatch(1);
+        var paymentExecutor = Executors.newSingleThreadExecutor();
+
+        try {
+            var cancellationFuture = paymentExecutor.submit(() -> transactionTemplate.execute(status -> {
+                var paymentBeforeProcessing = paymentRepository.findById(paymentId).orElseThrow();
+                assertThat(paymentBeforeProcessing.getStatus()).isEqualTo(PaymentStatus.CREATED);
+                cancellationSnapshotRead.countDown();
+                awaitPaymentSignal(processingCommitted, "Processing must commit before cancellation is attempted");
+                return paymentService.markAsCancelled(orderId, paymentId);
+            }));
+            awaitPaymentSignal(cancellationSnapshotRead, "Payment must be read before processing starts");
+
+            var processingPaymentResponse = paymentService.startProcessing(orderId, paymentId);
+            assertThat(processingPaymentResponse.status()).isEqualTo(PaymentStatus.PROCESSING);
+            processingCommitted.countDown();
+            var cancelledPaymentResponse = cancellationFuture.get(20, TimeUnit.SECONDS);
+
+            assertThat(cancelledPaymentResponse.status()).isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(paymentRepository.findById(paymentId).orElseThrow().getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(readAvailableStock(productId)).isEqualTo(5L);
+            assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+        } finally {
+            processingCommitted.countDown();
+            paymentExecutor.shutdownNow();
+            assertThat(paymentExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private void awaitPaymentSignal(CountDownLatch paymentSignal, String description) {
+        try {
+            assertThat(paymentSignal.await(10, TimeUnit.SECONDS)).as(description).isTrue();
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Concurrent payment operation interrupted", interruptedException);
         }
     }
 

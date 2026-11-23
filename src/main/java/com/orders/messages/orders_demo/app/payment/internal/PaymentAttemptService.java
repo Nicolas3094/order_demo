@@ -20,6 +20,7 @@ import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPa
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 
+import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
 @Service
@@ -30,13 +31,16 @@ public class PaymentAttemptService {
     private final CustomerInternalApi customerInternalApi;
     private final ProductInternalApi productInternalApi;
 
+    private final EntityManager entityManager;
+
     public PaymentAttemptService(PaymentAttemptRepository paymentAttemptRepository,
             OrderInternalApi orderInternalApi, CustomerInternalApi customerInternalApi,
-            ProductInternalApi productInternalApi) {
+            ProductInternalApi productInternalApi, EntityManager entityManager) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.orderInternalApi = orderInternalApi;
         this.customerInternalApi = customerInternalApi;
         this.productInternalApi = productInternalApi;
+        this.entityManager = entityManager;
     }
 
     /**
@@ -129,14 +133,20 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse startProcessing(UUID orderId, UUID paymentId) {
-        return updatePaymentAttemptState(orderId, paymentId, payment -> {
+        PaymentAttemptEntity paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
-            orderInternalApi.validateCanReceivePayment(orderId);
-            UUID customerId = orderInternalApi.getOrderById(orderId).customerId();
-            validateCustomerCanStartPayment(customerId);
+        orderInternalApi.validateCanReceivePayment(orderId);
+        UUID customerId = orderInternalApi.getOrderById(orderId).customerId();
+        validateCustomerCanStartPayment(customerId);
 
-            payment.startProcessing();
-        });
+        int updatedRows = paymentAttemptRepository.startProcessingIfAvailable(paymentId);
+
+        if (updatedRows == 0) {
+            throw new InvalidPaymentStateException("Only created payments can start processing.");
+        }
+        entityManager.refresh(paymentAttempt);
+
+        return PaymentAttemptMapper.toResponse(paymentAttempt);
     }
 
     /**
@@ -221,33 +231,22 @@ public class PaymentAttemptService {
      */
     @Transactional
     public PaymentAttemptResponse markAsCancelled(UUID orderId, UUID paymentId) {
-        return updatePaymentAttemptState(orderId, paymentId, payment -> {
-            payment.cancel();
-
-            orderInternalApi.markAsPending(orderId);
-
-            increaseStock(orderId);
-        });
-    }
-
-    /**
-     * Applies the given state transition to a payment attempt and persists the
-     * changes.
-     *
-     * @param orderId   the order identifier.
-     * @param paymentId the payment attempt identifier.
-     * @param action    the state transition to apply.
-     * @return the updated payment attempt.
-     * @throws PaymentNotFoundException if the payment attempt does not exist or
-     *                                  does not belong to the specified order.
-     */
-    private PaymentAttemptResponse updatePaymentAttemptState(UUID orderId, UUID paymentId,
-            Consumer<PaymentAttemptEntity> action) {
         PaymentAttemptEntity paymentAttempt = findPaymentAttempt(orderId, paymentId);
 
-        action.accept(paymentAttempt);
+        int updatedRows = paymentAttemptRepository.cancelIfAvailable(paymentId);
 
-        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(paymentAttempt));
+        if (updatedRows == 0) {
+            throw new InvalidPaymentStateException("Only created or processing payments can be cancelled.");
+
+        }
+
+        entityManager.refresh(paymentAttempt);
+
+        increaseStock(orderId);
+
+        orderInternalApi.markAsPending(orderId);
+
+        return PaymentAttemptMapper.toResponse(paymentAttempt);
     }
 
     /** Validates the customer independently of the order's payment state. */

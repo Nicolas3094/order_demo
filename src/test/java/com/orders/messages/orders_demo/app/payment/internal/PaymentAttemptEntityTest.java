@@ -37,41 +37,6 @@ public class PaymentAttemptEntityTest {
     }
 
     @Test
-    public void startProcessing_WhenStatusIsCreated_ShouldSetStatusAsProcessing() {
-        PaymentAttemptEntity paymentAttempt = PaymentAttemptEntity.builder()
-                .orderId(DEFAULT_ORDER.getId())
-                .provider(PaymentProvider.NONE)
-                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
-                .build();
-
-        paymentAttempt.startProcessing();
-
-        assertEquals(PaymentStatus.PROCESSING, paymentAttempt.getStatus());
-    }
-
-    @Test
-    public void startProcessing_WhenStatusIsProcessing_ShouldThrowInvalidPaymentStateException() {
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(PaymentStatus.PROCESSING);
-
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttempt.startProcessing());
-
-        assertEquals("Payment is already being processed.", result.getMessage());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "SUCCEEDED", "FAILED", "CANCELLED" })
-    public void startProcessing_WhenStatusIsOtherThanCreatedOrProcessing_ShouldThrowInvalidPaymentException(
-            PaymentStatus status) {
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(status);
-
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttempt.startProcessing());
-
-        assertEquals("Only created payments can start processing.", result.getMessage());
-    }
-
-    @Test
     public void markAsSucceeded_WhenStatusIsProcessing_ShouldSetProviderRefAndStatusAsSucceeded() {
         String providerRef = "provider_ref";
         PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(PaymentStatus.PROCESSING);
@@ -120,27 +85,6 @@ public class PaymentAttemptEntityTest {
                 () -> paymentAttempt.markAsFailed(statusCode, message));
 
         assertEquals("Only processing payments can fail.", result.getMessage());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "PROCESSING" })
-    public void cancel_WhenStatusIsCreatedOrProcessing_ShouldSetStatusAsCancelled(PaymentStatus status) {
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(status);
-
-        paymentAttempt.cancel();
-
-        assertEquals(PaymentStatus.CANCELLED, paymentAttempt.getStatus());
-    }
-
-    @ParameterizedTest
-    @MethodSource("invalidPaymentStateExceptionWhenPaymentIsCancelled")
-    public void cancel_WhenStatusIsOtherThanCreatedOrProcessing_ShouldThrowInvalidPaymentStateException(
-            PaymentStatus status, String message) {
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(status);
-
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttempt.cancel());
-        assertEquals(message, result.getMessage());
     }
 
     @Test

@@ -1,11 +1,14 @@
 package com.orders.messages.orders_demo.app.repositories;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
@@ -100,8 +103,7 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         entityManager.clear();
         payment = paymentRepository.findById(id).orElseThrow();
 
-        payment.startProcessing();
-        paymentRepository.saveAndFlush(payment);
+        paymentRepository.startProcessingIfAvailable(id);
         entityManager.clear();
         var processing = paymentRepository.findById(id).orElseThrow();
         assertThat(processing.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
@@ -122,7 +124,8 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         entityManager.clear();
         payment = paymentRepository.findById(id).orElseThrow();
 
-        payment.startProcessing();
+        paymentRepository.startProcessingIfAvailable(id);
+        entityManager.refresh(payment);
         payment.markAsFailed(402, "Payment declined.");
         paymentRepository.saveAndFlush(payment);
         entityManager.clear();
@@ -170,6 +173,122 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         assertThatThrownBy(() -> paymentRepository.saveAndFlush(invalid))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasStackTraceContaining("value too long for type character varying(500)");
+    }
+
+    @Test
+    void shouldStartProcessingOnlyTheRequestedCreatedPaymentAndReportOneUpdatedRow() {
+        var requestedPayment = paymentRepository.saveAndFlush(createPayment(UUID.randomUUID()));
+        var otherPayment = paymentRepository.saveAndFlush(createPayment(UUID.randomUUID()));
+
+        int updatedRows = paymentRepository.startProcessingIfAvailable(requestedPayment.getId());
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        var processingPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(processingPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(processingPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
+        assertThat(processingPayment.getIdempotencyKey()).isEqualTo(requestedPayment.getIdempotencyKey());
+        assertThat(processingPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
+        assertThat(paymentRepository.findById(otherPayment.getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.CREATED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "CREATED")
+    void shouldRejectStartingProcessingForNonCreatedPaymentWithoutChangingIt(PaymentStatus initialStatus) {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
+        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+
+        int updatedRows = paymentRepository.startProcessingIfAvailable(originalPayment.getId());
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
+        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
+    }
+
+    @Test
+    void shouldReportZeroUpdatedRowsWhenStartingProcessingForMissingPayment() {
+        assertThat(paymentRepository.startProcessingIfAvailable(UUID.randomUUID())).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = { "CREATED", "PROCESSING" })
+    void shouldCancelOnlyTheRequestedEligiblePaymentAndReportOneUpdatedRow(PaymentStatus initialStatus) {
+        var requestedPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
+        var otherPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
+
+        int updatedRows = paymentRepository.cancelIfAvailable(requestedPayment.getId());
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        var cancelledPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(cancelledPayment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(cancelledPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
+        assertThat(cancelledPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
+        assertThat(paymentRepository.findById(otherPayment.getId()).orElseThrow().getStatus())
+                .isEqualTo(initialStatus);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, names = { "SUCCEEDED", "FAILED", "CANCELLED" })
+    void shouldRejectCancellingTerminalPaymentWithoutChangingIt(PaymentStatus initialStatus) {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(initialStatus));
+        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+
+        int updatedRows = paymentRepository.cancelIfAvailable(originalPayment.getId());
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
+        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
+    }
+
+    @Test
+    void shouldReportZeroUpdatedRowsWhenCancellingMissingPayment() {
+        assertThat(paymentRepository.cancelIfAvailable(UUID.randomUUID())).isZero();
+    }
+
+    @Test
+    void shouldUpdateModificationTimestampWhenProcessingStarts() {
+        UUID paymentId = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED)).getId();
+        Instant previousUpdatedAt = setUpdatedAtInPast(paymentId);
+
+        int updatedRows = paymentRepository.startProcessingIfAvailable(paymentId);
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getUpdatedAt()).isAfter(previousUpdatedAt);
+    }
+
+    @Test
+    void shouldUpdateModificationTimestampWhenPaymentIsCancelled() {
+        UUID paymentId = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.CREATED)).getId();
+        Instant previousUpdatedAt = setUpdatedAtInPast(paymentId);
+
+        int updatedRows = paymentRepository.cancelIfAvailable(paymentId);
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        assertThat(paymentRepository.findById(paymentId).orElseThrow().getUpdatedAt()).isAfter(previousUpdatedAt);
+    }
+
+    private Instant setUpdatedAtInPast(UUID paymentId) {
+        Instant previousUpdatedAt = Instant.parse("2000-01-01T00:00:00Z");
+        entityManager.createNativeQuery("UPDATE payment_attempt SET updated_at = :updatedAt WHERE id = :paymentId")
+                .setParameter("updatedAt", previousUpdatedAt)
+                .setParameter("paymentId", paymentId)
+                .executeUpdate();
+        entityManager.clear();
+        return previousUpdatedAt;
+    }
+
+    private PaymentAttemptEntity createPaymentWithStatus(PaymentStatus paymentStatus) {
+        return PaymentAttemptEntity.builder().orderId(UUID.randomUUID()).provider(PaymentProvider.STRIPE)
+                .amount(new BigDecimal("247.00")).idempotencyKey(UUID.randomUUID().toString())
+                .status(paymentStatus).build();
     }
 
     private PaymentAttemptEntity createPayment(UUID orderId) {

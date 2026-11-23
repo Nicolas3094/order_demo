@@ -121,15 +121,6 @@ public class PaymentAttemptEntity {
         return updatedAt;
     }
 
-    /** The Payment is under process. */
-    public void startProcessing() {
-        switch (status) {
-            case CREATED -> status = PaymentStatus.PROCESSING;
-            case PROCESSING -> throw new InvalidPaymentStateException("Payment is already being processed.");
-            default -> throw new InvalidPaymentStateException("Only created payments can start processing.");
-        }
-    }
-
     /**
      * The money has already been collected.
      * 
@@ -154,17 +145,6 @@ public class PaymentAttemptEntity {
                 this.failureMessage = failureMessage;
             }
             default -> throw new InvalidPaymentStateException("Only processing payments can fail.");
-        }
-    }
-
-    /** The attempt was canceled before finishing. */
-    public void cancel() {
-        switch (status) {
-            case CREATED, PROCESSING -> status = PaymentStatus.CANCELLED;
-            case SUCCEEDED -> throw new InvalidPaymentStateException("Successful payments cannot be cancelled.");
-            case FAILED -> throw new InvalidPaymentStateException("Failed payments cannot be cancelled.");
-            case CANCELLED -> throw new InvalidPaymentStateException("Payment is already cancelled.");
-            default -> throw new InvalidPaymentStateException("Unknown payment state.");
         }
     }
 
