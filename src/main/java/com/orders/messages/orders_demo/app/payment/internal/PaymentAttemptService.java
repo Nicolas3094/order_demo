@@ -1,5 +1,8 @@
 package com.orders.messages.orders_demo.app.payment.internal;
 
+import java.time.Instant;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Objects;
@@ -35,20 +38,24 @@ import jakarta.transaction.Transactional;
 @Service
 public class PaymentAttemptService {
 
+    private static final Duration PAYMENT_LIFETIME = Duration.ofMinutes(15);
+
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final OrderInternalApi orderInternalApi;
     private final CustomerInternalApi customerInternalApi;
     private final ProductInternalApi productInternalApi;
     private final TransactionTemplate transactionTemplate;
+    private final Clock clock;
 
     public PaymentAttemptService(PaymentAttemptRepository paymentAttemptRepository,
             OrderInternalApi orderInternalApi, CustomerInternalApi customerInternalApi,
-            ProductInternalApi productInternalApi, TransactionTemplate transactionTemplate) {
+            ProductInternalApi productInternalApi, TransactionTemplate transactionTemplate, Clock clock) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.orderInternalApi = orderInternalApi;
         this.customerInternalApi = customerInternalApi;
         this.productInternalApi = productInternalApi;
         this.transactionTemplate = transactionTemplate;
+        this.clock = clock;
     }
 
     /**
@@ -100,13 +107,15 @@ public class PaymentAttemptService {
         try {
             return transactionTemplate.execute(status -> createPaymentInTransaction(orderId, paymentRequest));
         } catch (RuntimeException creationFailure) {
-            // A caller-owned transaction cannot be recovered here: it must roll back as a whole.
+            // A caller-owned transaction cannot be recovered here: it must roll back as a
+            // whole.
             if (TransactionSynchronizationManager.isActualTransactionActive()
                     || !canRecoverPaymentCreation(creationFailure)) {
                 throw creationFailure;
             }
 
-            // execute has already completed the rollback; this lookup starts a valid transaction.
+            // execute has already completed the rollback; this lookup starts a valid
+            // transaction.
             return transactionTemplate.execute(status -> paymentAttemptRepository
                     .findByIdempotencyKey(paymentRequest.idempotencyKey())
                     .map(payment -> responseForExistingPayment(orderId, payment))
@@ -114,7 +123,8 @@ public class PaymentAttemptService {
         }
     }
 
-    private PaymentAttemptResponse createPaymentInTransaction(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
+    private PaymentAttemptResponse createPaymentInTransaction(UUID orderId,
+            CreatePaymentAttemptRequest paymentRequest) {
         Optional<PaymentAttemptEntity> paymentOpt = paymentAttemptRepository
                 .findByIdempotencyKey(paymentRequest.idempotencyKey());
 
@@ -177,6 +187,11 @@ public class PaymentAttemptService {
     @Transactional
     public PaymentAttemptResponse startProcessing(UUID orderId, UUID paymentId) {
         PaymentAttemptEntity paymentAttempt = findPaymentAttempt(orderId, paymentId);
+
+        if (paymentAttempt.getStatus() == PaymentStatus.CREATED
+                && hasReachedPaymentDeadline(paymentAttempt, clock.instant())) {
+            throw new InvalidPaymentStateException("Expired payment attempts cannot start processing.");
+        }
 
         orderInternalApi.validateCanReceivePayment(orderId);
         UUID customerId = orderInternalApi.getOrderById(orderId).customerId();
@@ -251,7 +266,8 @@ public class PaymentAttemptService {
                         && Objects.equals(errorMessage, payment.getFailureMessage()));
     }
 
-    private PaymentAttemptResponse markAsFailedInTransaction(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
+    private PaymentAttemptResponse markAsFailedInTransaction(UUID orderId, UUID paymentId, Integer code,
+            String errorMessage) {
         PaymentAttemptEntity payment = findPaymentAttempt(orderId, paymentId);
 
         if (PaymentStatus.FAILED.equals(payment.getStatus())) {
@@ -282,7 +298,8 @@ public class PaymentAttemptService {
                 throw notificationFailure;
             }
 
-            // Re-read only after rollback. Recognizing the result must not repeat order or stock changes.
+            // Re-read only after rollback. Recognizing the result must not repeat order or
+            // stock changes.
             return transactionTemplate.execute(status -> paymentAttemptRepository.findById(paymentId)
                     .filter(payment -> orderId.equals(payment.getOrderId()))
                     .filter(matchesNotification)
@@ -298,6 +315,37 @@ public class PaymentAttemptService {
                         && !(notificationFailure instanceof PaymentNotFoundException))
                 || (notificationFailure instanceof InvalidOrderStateException
                         && !(notificationFailure instanceof OrderNotFoundException));
+    }
+
+    /**
+     * Expires an unsent CREATED attempt once its 15-minute reservation ends.
+     *
+     * @return true when this call expires the attempt; false when no expiration
+     *         applies.
+     */
+    @Transactional
+    public boolean expirePaymentAttemptIfDue(UUID paymentId, Instant evaluationTime) {
+        Objects.requireNonNull(evaluationTime, "Evaluation time must not be null.");
+        Optional<PaymentAttemptEntity> paymentOpt = paymentAttemptRepository.findById(paymentId);
+        if (paymentOpt.isEmpty()) {
+            return false;
+        }
+
+        PaymentAttemptEntity payment = paymentOpt.get();
+        if (payment.getStatus() != PaymentStatus.CREATED || payment.getProviderRef() != null
+                || !hasReachedPaymentDeadline(payment, evaluationTime)) {
+            return false;
+        }
+
+        payment.cancel();
+        increaseStock(payment.getOrderId());
+        orderInternalApi.markAsPending(payment.getOrderId());
+        paymentAttemptRepository.save(payment);
+        return true;
+    }
+
+    private boolean hasReachedPaymentDeadline(PaymentAttemptEntity payment, Instant evaluationTime) {
+        return !evaluationTime.isBefore(payment.getCreatedAt().plus(PAYMENT_LIFETIME));
     }
 
     /**

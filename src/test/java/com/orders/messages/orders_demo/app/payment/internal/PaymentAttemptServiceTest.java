@@ -16,6 +16,10 @@ import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
 import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import java.time.Clock;
+import java.time.Instant;
+import org.springframework.test.util.ReflectionTestUtils;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +39,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.ProductNotFoundException;
 import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 
 import static org.mockito.ArgumentMatchers.*;
@@ -73,10 +78,13 @@ public class PaymentAttemptServiceTest {
 
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private Clock clock;
 
     @InjectMocks
     private PaymentAttemptService paymentAttemptService;
 
+    private static final Instant TEST_NOW = Instant.parse("2030-01-01T12:00:00Z");
     private static final String DEFAULT_IDEMPOTENCY_KEY = "idempotency_key";
     private static final String DEFAULT_PROVIDER_REF = "providerRef";
     private static final BigDecimal DEFAULT_AMOUNT_TOTAL = BigDecimal.valueOf(100.00);
@@ -92,6 +100,7 @@ public class PaymentAttemptServiceTest {
         customerId = UUID.randomUUID();
         paymentCaptor = ArgumentCaptor.forClass(PaymentAttemptEntity.class);
         lenient().when(transactionTemplate.execute(any())).thenAnswer(this::executePaymentTransaction);
+        lenient().when(clock.instant()).thenReturn(TEST_NOW);
     }
 
     @Test
@@ -1137,6 +1146,138 @@ public class PaymentAttemptServiceTest {
                 .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).failureCode(failureCode).failureMessage(failureMessage).build();
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = { 900, 901, 1800 })
+    void expirePaymentAttemptIfDue_WhenUnsentPaymentReachesDeadline_ShouldCancelRestoreStockAndReturnOrderToPending(
+            long paymentAgeInSeconds) {
+        var createdPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        paymentId = createdPaymentAttempt.getId();
+        ReflectionTestUtils.setField(createdPaymentAttempt, "createdAt", TEST_NOW.minusSeconds(paymentAgeInSeconds));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(createdPaymentAttempt));
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId))
+                .thenReturn(List.of(createOrderItemResponse("SKU-EXPIRATION", 2L)));
+
+        boolean expired = paymentAttemptService.expirePaymentAttemptIfDue(paymentId, TEST_NOW);
+
+        assertEquals(true, expired);
+        assertEquals(PaymentStatus.CANCELLED, createdPaymentAttempt.getStatus());
+        InOrder expirationSequence = inOrder(productInternalApi, orderInternalApi, paymentAttemptRepository);
+        expirationSequence.verify(productInternalApi).increaseProductStock("SKU-EXPIRATION", 2L);
+        expirationSequence.verify(orderInternalApi).markAsPending(orderId);
+        expirationSequence.verify(paymentAttemptRepository).save(createdPaymentAttempt);
+        verifyNoInteractions(customerInternalApi, clock);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { -60, 0, 899 })
+    void expirePaymentAttemptIfDue_WhenDeadlineHasNotBeenReached_ShouldReturnFalseWithoutEffects(long paymentAgeInSeconds) {
+        var createdPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        paymentId = createdPaymentAttempt.getId();
+        ReflectionTestUtils.setField(createdPaymentAttempt, "createdAt", TEST_NOW.minusSeconds(paymentAgeInSeconds));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(createdPaymentAttempt));
+
+        boolean expired = paymentAttemptService.expirePaymentAttemptIfDue(paymentId, TEST_NOW);
+
+        assertEquals(false, expired);
+        assertEquals(PaymentStatus.CREATED, createdPaymentAttempt.getStatus());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi, customerInternalApi);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = "CREATED")
+    void expirePaymentAttemptIfDue_WhenPaymentIsNotCreated_ShouldReturnFalseWithoutEffects(PaymentStatus initialStatus) {
+        var originalPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, initialStatus);
+        paymentId = originalPaymentAttempt.getId();
+        ReflectionTestUtils.setField(originalPaymentAttempt, "createdAt", TEST_NOW.minusSeconds(1800));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(originalPaymentAttempt));
+
+        boolean expired = paymentAttemptService.expirePaymentAttemptIfDue(paymentId, TEST_NOW);
+
+        assertEquals(false, expired);
+        assertEquals(initialStatus, originalPaymentAttempt.getStatus());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi, customerInternalApi);
+    }
+
+    @Test
+    void expirePaymentAttemptIfDue_WhenPaymentHasProviderReference_ShouldKeepReservation() {
+        var createdPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        paymentId = createdPaymentAttempt.getId();
+        ReflectionTestUtils.setField(createdPaymentAttempt, "createdAt", TEST_NOW.minusSeconds(1800));
+        ReflectionTestUtils.setField(createdPaymentAttempt, "providerRef", "known-provider-operation");
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(createdPaymentAttempt));
+
+        boolean expired = paymentAttemptService.expirePaymentAttemptIfDue(paymentId, TEST_NOW);
+
+        assertEquals(false, expired);
+        assertEquals(PaymentStatus.CREATED, createdPaymentAttempt.getStatus());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi, customerInternalApi);
+    }
+
+    @Test
+    void expirePaymentAttemptIfDue_WhenPaymentIsMissing_ShouldReturnFalseWithoutEffects() {
+        paymentId = UUID.randomUUID();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.empty());
+
+        boolean expired = paymentAttemptService.expirePaymentAttemptIfDue(paymentId, TEST_NOW);
+
+        assertEquals(false, expired);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi, customerInternalApi);
+    }
+
+    @Test
+    void expirePaymentAttemptIfDue_ShouldUseEvaluationTimeRatherThanCurrentClock() {
+        var createdPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        paymentId = createdPaymentAttempt.getId();
+        ReflectionTestUtils.setField(createdPaymentAttempt, "createdAt", TEST_NOW.minusSeconds(900));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(createdPaymentAttempt));
+
+        boolean expired = paymentAttemptService.expirePaymentAttemptIfDue(paymentId, TEST_NOW.minusSeconds(1));
+
+        assertEquals(false, expired);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(clock, orderInternalApi, productInternalApi, customerInternalApi);
+    }
+
+    @Test
+    void expirePaymentAttemptIfDue_WhenStockCannotBeRestored_ShouldPropagateWithoutSavingOrChangingOrder() {
+        var createdPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        paymentId = createdPaymentAttempt.getId();
+        ReflectionTestUtils.setField(createdPaymentAttempt, "createdAt", TEST_NOW.minusSeconds(900));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(createdPaymentAttempt));
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId))
+                .thenReturn(List.of(createOrderItemResponse("SKU-EXPIRATION", 2L)));
+        var missingProductFailure = new ProductNotFoundException();
+        doThrow(missingProductFailure).when(productInternalApi).increaseProductStock("SKU-EXPIRATION", 2L);
+
+        var actualFailure = assertThrows(ProductNotFoundException.class,
+                () -> paymentAttemptService.expirePaymentAttemptIfDue(paymentId, TEST_NOW));
+
+        assertSame(missingProductFailure, actualFailure);
+        verify(orderInternalApi, never()).markAsPending(any(UUID.class));
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = { 900, 901 })
+    void startProcessing_WhenPaymentDeadlineHasBeenReached_ShouldRejectBeforeChangingAnything(long paymentAgeInSeconds) {
+        var createdPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        paymentId = createdPaymentAttempt.getId();
+        ReflectionTestUtils.setField(createdPaymentAttempt, "createdAt", TEST_NOW.minusSeconds(paymentAgeInSeconds));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(createdPaymentAttempt));
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.startProcessing(orderId, paymentId));
+
+        assertEquals("Expired payment attempts cannot start processing.", invalidPaymentStateException.getMessage());
+        assertEquals(PaymentStatus.CREATED, createdPaymentAttempt.getStatus());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi, customerInternalApi);
+    }
+
     private DataIntegrityViolationException createConstraintFailure(String constraintName) {
         var constraintViolation = new ConstraintViolationException("Duplicate key", new SQLException("Duplicate", "23505"),
                 constraintName);
@@ -1182,12 +1323,14 @@ public class PaymentAttemptServiceTest {
 
     private static PaymentAttemptEntity createPaymentAttemptWithStatusAndOrder(UUID orderId,
             PaymentStatus status) {
-        return PaymentAttemptEntity.builder()
+        var paymentAttempt = PaymentAttemptEntity.builder()
                 .id(UUID.randomUUID())
                 .orderId(orderId)
                 .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
                 .status(status)
                 .build();
+        ReflectionTestUtils.setField(paymentAttempt, "createdAt", TEST_NOW);
+        return paymentAttempt;
     }
 
     private PaymentAttemptEntity createSucceededPaymentAttempt(String providerReference) {
