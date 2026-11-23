@@ -5,17 +5,11 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.EnumSource.Mode;
-import org.junit.jupiter.params.provider.MethodSource;
 
 import com.orders.messages.orders_demo.app.common.enums.Currency;
 import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
-import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 
 public class PaymentAttemptEntityTest {
 
@@ -34,33 +28,6 @@ public class PaymentAttemptEntityTest {
                 .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
                 .build();
         assertEquals(PaymentStatus.CREATED, result.getStatus());
-    }
-
-    @Test
-    public void markAsFailed_WhenStatusIsProcessing_ShouldSetStatusAsFailedAndSetFailureCodeAndMessage() {
-        Integer statusCode = 500;
-        String message = "Server error";
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(PaymentStatus.PROCESSING);
-
-        paymentAttempt.markAsFailed(statusCode, message);
-
-        assertEquals(PaymentStatus.FAILED, paymentAttempt.getStatus());
-        assertEquals(statusCode, paymentAttempt.getFailureCode());
-        assertEquals(message, paymentAttempt.getFailureMessage());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
-    public void markAsFailed_WhenStatusIsOtherThanProcessing_ShouldThrowInvalidPaymentStateException(
-            PaymentStatus status) {
-        Integer statusCode = 500;
-        String message = "Server error";
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(status);
-
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttempt.markAsFailed(statusCode, message));
-
-        assertEquals("Only processing payments can fail.", result.getMessage());
     }
 
     @Test
@@ -105,15 +72,6 @@ public class PaymentAttemptEntityTest {
         assertEquals(BigDecimal.ZERO, paymentAttempt.getAmount());
         assertEquals(PaymentProvider.NONE, paymentAttempt.getProvider());
         assertEquals(PaymentStatus.CREATED, paymentAttempt.getStatus());
-    }
-
-    private static PaymentAttemptEntity createPaymentWithStatus(PaymentStatus status) {
-        return PaymentAttemptEntity.builder()
-                .orderId(DEFAULT_ORDER.getId())
-                .provider(PaymentProvider.NONE)
-                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
-                .status(status)
-                .build();
     }
 
     @SuppressWarnings("unused")

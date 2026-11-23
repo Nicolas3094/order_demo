@@ -44,4 +44,19 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttemptEn
     int markAsSucceededIfAvailable(
             @Param("idempotencyKey") String idempotencyKey,
             @Param("providerRef") String providerRef);
+
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            UPDATE payment_attempt
+            SET status = 'FAILED',
+                updated_at = CURRENT_TIMESTAMP,
+                failure_code = :failureCode,
+                failure_message = :failureMessage
+            WHERE idempotency_key = :idempotencyKey
+                AND status = 'PROCESSING'
+            """, nativeQuery = true)
+    int markAsFailedIfAvailable(
+            @Param("idempotencyKey") String idempotencyKey,
+            @Param("failureCode") Integer failureCode,
+            @Param("failureMessage") String failureMessage);
 }

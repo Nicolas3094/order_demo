@@ -15,13 +15,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource.Mode;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
 import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
 import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
-import static org.mockito.ArgumentMatchers.any;
+
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import org.mockito.InjectMocks;
@@ -230,6 +232,91 @@ public class PaymentAttemptServiceTest {
         verifyNoInteractions(orderInternalApi, productInternalApi);
     }
 
+    @Test
+    void createPaymentAttempt_WhenOrderCannotStartPayment_ShouldPropagateRejectionWithoutSaving() {
+        mockCustomer(CustomerStatus.ACTIVE);
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, BigDecimal.ZERO));
+        doThrow(new InvalidOrderStateException("Order must contain items and have a positive total to start payment."))
+                .when(orderInternalApi).markAsPaymentInProgress(orderId);
+
+        var result = assertThrows(InvalidOrderStateException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, request));
+
+        assertEquals("Order must contain items and have a positive total to start payment.", result.getMessage());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    void createPaymentAttempt_WhenCustomerIsBlocked_ShouldRejectWithoutSavingOrLockingOrder() {
+        mockCustomer(CustomerStatus.BLOCKED);
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
+        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+
+        var result = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, request));
+
+        assertEquals("Blocked customers cannot start payments.", result.getMessage());
+        verify(orderInternalApi, never()).markAsPaymentInProgress(any(UUID.class));
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    void createPaymentAttempt_WhenExistingKeyBelongsToSameOrder_ShouldNotRevalidateCustomer() {
+        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY)).thenReturn(Optional.of(payment));
+
+        var result = paymentAttemptService.createPaymentAttempt(orderId,
+                new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY));
+
+        assertEquals(payment.getId(), result.id());
+        verifyNoInteractions(customerInternalApi, orderInternalApi, productInternalApi);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    void createPaymentAttempt_WhenOrderHasMultipleProducts_ShouldReserveEveryItemBeforeSaving() {
+        mockCustomer(CustomerStatus.ACTIVE);
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId)).thenReturn(List.of(
+                createOrderItemResponse("SKU-FIRST", 2L), createOrderItemResponse("SKU-SECOND", 3L)));
+        mockPaymentRepositorySave();
+
+        var createdPaymentResponse = paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest);
+
+        InOrder reservationSequence = inOrder(orderInternalApi, productInternalApi, paymentAttemptRepository);
+        reservationSequence.verify(orderInternalApi).getAllOrderItemsFromOrder(orderId);
+        reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
+        reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
+        reservationSequence.verify(orderInternalApi).markAsPaymentInProgress(orderId);
+        reservationSequence.verify(paymentAttemptRepository).save(any(PaymentAttemptEntity.class));
+        assertEquals(PaymentStatus.CREATED, createdPaymentResponse.status());
+    }
+
+    @Test
+    void createPaymentAttempt_WhenReservationFails_ShouldPropagateFailureWithoutSaving() {
+        mockCustomer(CustomerStatus.ACTIVE);
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+        when(orderInternalApi.getOrderDataForPayment(orderId))
+                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId)).thenReturn(List.of(
+                createOrderItemResponse("SKU-FIRST", 2L), createOrderItemResponse("SKU-SECOND", 3L)));
+        doNothing().when(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
+        doThrow(new InsufficientStockException()).when(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
+
+        var reservationException = assertThrows(InsufficientStockException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
+
+        assertEquals("Insufficient stock.", reservationException.getMessage());
+        verify(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
+        verify(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
     /*
      * 
      * startProcessing
@@ -323,6 +410,25 @@ public class PaymentAttemptServiceTest {
         verify(paymentAttemptRepository).startProcessingIfAvailable(paymentId);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
         verifyNoInteractions(entityManager, productInternalApi);
+    }
+
+    @Test
+    void startProcessing_WhenCustomerIsBlocked_ShouldRejectWithoutChangingPayment() {
+        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        when(paymentAttemptRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+        when(orderInternalApi.getOrderById(orderId)).thenReturn(OrderResponse.builder()
+                .setId(orderId).customerId(customerId).build());
+        mockCustomer(CustomerStatus.BLOCKED);
+
+        var result = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.startProcessing(orderId, payment.getId()));
+
+        assertEquals("Blocked customers cannot start payments.", result.getMessage());
+        assertEquals(PaymentStatus.CREATED, payment.getStatus());
+        verify(paymentAttemptRepository, never()).startProcessingIfAvailable(any(UUID.class));
+        verifyNoInteractions(entityManager, productInternalApi);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verify(orderInternalApi, never()).getOrderDataForPayment(any(UUID.class));
     }
 
     /*
@@ -434,6 +540,41 @@ public class PaymentAttemptServiceTest {
         verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
+    @Test
+    void markAsSucceeded_WhenSameNotificationIsRepeated_ShouldReturnWithoutUpdatingPaymentOrOrder() {
+        var succeededPaymentAttempt = createSucceededPaymentAttempt("ref-repeat");
+        when(paymentAttemptRepository.findById(succeededPaymentAttempt.getId()))
+                .thenReturn(Optional.of(succeededPaymentAttempt));
+
+        var repeatedSuccessResponse = paymentAttemptService.markAsSucceeded(
+                orderId, succeededPaymentAttempt.getId(), "ref-repeat");
+
+        assertEquals(succeededPaymentAttempt.getId(), repeatedSuccessResponse.id());
+        assertEquals(PaymentStatus.SUCCEEDED, repeatedSuccessResponse.status());
+        assertEquals("ref-repeat", repeatedSuccessResponse.providerRef());
+        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsSucceeded_WhenRepeatedReferenceDiffers_ShouldRejectWithoutEffects() {
+        var succeededPaymentAttempt = createSucceededPaymentAttempt("original-reference");
+        when(paymentAttemptRepository.findById(succeededPaymentAttempt.getId()))
+                .thenReturn(Optional.of(succeededPaymentAttempt));
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.markAsSucceeded(orderId, succeededPaymentAttempt.getId(),
+                        "another-reference"));
+
+        assertEquals("Successful payment has a different provider reference.",
+                invalidPaymentStateException.getMessage());
+        assertEquals("original-reference", succeededPaymentAttempt.getProviderRef());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
+    }
+
     /*
      * 
      * markAsFailed
@@ -441,57 +582,159 @@ public class PaymentAttemptServiceTest {
      */
 
     @Test
-    public void markAsFailed_WhenProcessingPaymentIsFound_ShouldSaveErrorCodeAndMessage() {
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
-        paymentId = paymentAttempt.getId();
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
-        mockPaymentRepositorySave();
+    void markAsFailed_WhenProcessingPaymentIsFound_ShouldUpdateRefreshAndRestoreStock() {
+        var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        paymentId = processingPaymentAttempt.getId();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
+        when(paymentAttemptRepository.markAsFailedIfAvailable(DEFAULT_IDEMPOTENCY_KEY, 402, "Declined")).thenReturn(1);
+        mockRefreshedFailedPayment(processingPaymentAttempt, 402, "Declined");
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId))
+                .thenReturn(List.of(createOrderItemResponse("SKU-RESTORE", 2L)));
 
-        PaymentAttemptResponse result = paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Server error");
+        var failedPaymentResponse = paymentAttemptService.markAsFailed(orderId, paymentId, 402, "Declined");
 
-        verify(paymentAttemptRepository).save(paymentCaptor.capture());
-        assertEquals(paymentCaptor.getValue().getId(), result.id());
-        assertEquals(PaymentStatus.FAILED, result.status());
-        assertEquals(500, result.failureCode());
-        assertEquals("Server error", result.failureMessage());
-    }
-
-    @Test
-    public void markAsFailed_WhenProcessingPaymentNotIsFound_ShouldThrowPaymentNotFoundException() {
-        paymentId = UUID.randomUUID();
-
-        PaymentNotFoundException result = assertThrows(PaymentNotFoundException.class,
-                () -> paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Server error"));
-
-        assertEquals("Payment attempt not found.", result.getMessage());
+        InOrder failureSequence = inOrder(paymentAttemptRepository, entityManager, orderInternalApi, productInternalApi);
+        failureSequence.verify(paymentAttemptRepository).markAsFailedIfAvailable(DEFAULT_IDEMPOTENCY_KEY, 402, "Declined");
+        failureSequence.verify(entityManager).refresh(processingPaymentAttempt);
+        failureSequence.verify(orderInternalApi).markAsPending(orderId);
+        failureSequence.verify(productInternalApi).increaseProductStock("SKU-RESTORE", 2L);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        assertEquals(paymentId, failedPaymentResponse.id());
+        assertEquals(PaymentStatus.FAILED, failedPaymentResponse.status());
+        assertEquals(402, failedPaymentResponse.failureCode());
+        assertEquals("Declined", failedPaymentResponse.failureMessage());
     }
 
     @Test
-    public void markAsFailed_WhenPaymentOrderIdNotEqualToOrderId_ThrowsPaymentNotFoundException() {
+    void markAsFailed_WhenPaymentIsNotFound_ShouldRejectWithoutUpdating() {
+        paymentId = UUID.randomUUID();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.empty());
+
+        var paymentNotFoundException = assertThrows(PaymentNotFoundException.class,
+                () -> paymentAttemptService.markAsFailed(orderId, paymentId, 402, "Declined"));
+
+        assertEquals("Payment attempt not found.", paymentNotFoundException.getMessage());
+        verify(paymentAttemptRepository, never()).markAsFailedIfAvailable(anyString(), anyInt(), anyString());
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsFailed_WhenPaymentBelongsToAnotherOrder_ShouldRejectWithoutUpdating() {
+        var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        paymentId = processingPaymentAttempt.getId();
         UUID otherOrderId = UUID.randomUUID();
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
 
-        PaymentNotFoundException result = assertThrows(PaymentNotFoundException.class,
-                () -> paymentAttemptService.markAsFailed(otherOrderId, paymentId, 500, "Server error"));
+        var paymentNotFoundException = assertThrows(PaymentNotFoundException.class,
+                () -> paymentAttemptService.markAsFailed(otherOrderId, paymentId, 402, "Declined"));
 
-        assertEquals("Payment attempt not found.", result.getMessage());
+        assertEquals("Payment attempt not found.", paymentNotFoundException.getMessage());
+        verify(paymentAttemptRepository, never()).markAsFailedIfAvailable(anyString(), anyInt(), anyString());
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING", "FAILED" })
-    public void markAsFailed_WhenPaymentIsNotProcessing_ShouldThrowInvalidPaymentStateException(
-            PaymentStatus paymentStatus) {
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
-        paymentId = paymentAttempt.getId();
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = "FAILED")
+    void markAsFailed_WhenConditionalUpdateAffectsNoRows_ShouldRejectWithoutEffects(PaymentStatus initialStatus) {
+        var originalPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, initialStatus);
+        paymentId = originalPaymentAttempt.getId();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(originalPaymentAttempt));
+        when(paymentAttemptRepository.markAsFailedIfAvailable(DEFAULT_IDEMPOTENCY_KEY, 402, "Declined")).thenReturn(0);
 
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttemptService.markAsFailed(orderId, paymentId, 500, "Server error"));
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.markAsFailed(orderId, paymentId, 402, "Declined"));
 
-        assertEquals("Only processing payments can fail.", result.getMessage());
+        assertEquals("Only processing payments can fail.", invalidPaymentStateException.getMessage());
+        assertEquals(initialStatus, originalPaymentAttempt.getStatus());
+        verify(paymentAttemptRepository).markAsFailedIfAvailable(DEFAULT_IDEMPOTENCY_KEY, 402, "Declined");
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsFailed_WhenSameNotificationIsRepeated_ShouldReturnWithoutUpdating() {
+        var failedPaymentAttempt = PaymentAttemptEntity.builder().id(UUID.randomUUID()).orderId(orderId)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).status(PaymentStatus.FAILED)
+                .failureCode(402).failureMessage("Declined").build();
+        when(paymentAttemptRepository.findById(failedPaymentAttempt.getId())).thenReturn(Optional.of(failedPaymentAttempt));
+
+        var repeatedFailureResponse = paymentAttemptService.markAsFailed(
+                orderId, failedPaymentAttempt.getId(), 402, "Declined");
+
+        assertEquals(failedPaymentAttempt.getId(), repeatedFailureResponse.id());
+        assertEquals(PaymentStatus.FAILED, repeatedFailureResponse.status());
+        assertEquals(402, repeatedFailureResponse.failureCode());
+        assertEquals("Declined", repeatedFailureResponse.failureMessage());
+        verify(paymentAttemptRepository).findById(failedPaymentAttempt.getId());
+        verifyNoMoreInteractions(paymentAttemptRepository);
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsFailed_WhenOrderCannotReturnToPending_ShouldPropagateWithoutRestoringStock() {
+        var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        paymentId = processingPaymentAttempt.getId();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
+        when(paymentAttemptRepository.markAsFailedIfAvailable(DEFAULT_IDEMPOTENCY_KEY, 402, "Declined")).thenReturn(1);
+        mockRefreshedFailedPayment(processingPaymentAttempt, 402, "Declined");
+        doThrow(new InvalidOrderStateException("Order cannot return to pending."))
+                .when(orderInternalApi).markAsPending(orderId);
+
+        var invalidOrderStateException = assertThrows(InvalidOrderStateException.class,
+                () -> paymentAttemptService.markAsFailed(orderId, paymentId, 402, "Declined"));
+
+        assertEquals("Order cannot return to pending.", invalidOrderStateException.getMessage());
+        verify(entityManager).refresh(processingPaymentAttempt);
+        verifyNoInteractions(productInternalApi);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    void markAsFailed_WhenStockRestorationFails_ShouldPropagateWithoutSavingPayment() {
+        var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        paymentId = processingPaymentAttempt.getId();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
+        when(paymentAttemptRepository.markAsFailedIfAvailable(DEFAULT_IDEMPOTENCY_KEY, 402, "Declined")).thenReturn(1);
+        mockRefreshedFailedPayment(processingPaymentAttempt, 402, "Declined");
+        when(orderInternalApi.getAllOrderItemsFromOrder(orderId))
+                .thenReturn(List.of(createOrderItemResponse("SKU-RESTORE", 2L)));
+        doThrow(new IllegalStateException("Stock restoration failed."))
+                .when(productInternalApi).increaseProductStock("SKU-RESTORE", 2L);
+
+        var stockRestorationException = assertThrows(IllegalStateException.class,
+                () -> paymentAttemptService.markAsFailed(orderId, paymentId, 402, "Declined"));
+
+        assertEquals("Stock restoration failed.", stockRestorationException.getMessage());
+        verify(orderInternalApi).markAsPending(orderId);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @ParameterizedTest
+    @CsvSource({ "500, Declined", "402, Another failure", "500, Another failure" })
+    void markAsFailed_WhenRepeatedFailureDetailsDiffer_ShouldRejectWithoutEffects(
+            int repeatedFailureCode, String repeatedFailureMessage) {
+        var failedPaymentAttempt = PaymentAttemptEntity.builder()
+                .id(UUID.randomUUID())
+                .orderId(orderId)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY)
+                .status(PaymentStatus.FAILED)
+                .failureCode(402)
+                .failureMessage("Declined")
+                .build();
+        when(paymentAttemptRepository.findById(failedPaymentAttempt.getId()))
+                .thenReturn(Optional.of(failedPaymentAttempt));
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.markAsFailed(orderId, failedPaymentAttempt.getId(), repeatedFailureCode,
+                        repeatedFailureMessage));
+
+        assertEquals("Failed payment has different failure details.", invalidPaymentStateException.getMessage());
+        assertEquals(PaymentStatus.FAILED, failedPaymentAttempt.getStatus());
+        assertEquals(402, failedPaymentAttempt.getFailureCode());
+        assertEquals("Declined", failedPaymentAttempt.getFailureMessage());
+        verify(paymentAttemptRepository).findById(failedPaymentAttempt.getId());
+        verifyNoMoreInteractions(paymentAttemptRepository);
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
     /*
@@ -596,144 +839,9 @@ public class PaymentAttemptServiceTest {
         when(paymentAttemptRepository.save(any(PaymentAttemptEntity.class))).thenAnswer(i -> i.getArgument(0));
     }
 
-    @Test
-    void markAsSucceeded_WhenSameNotificationIsRepeated_ShouldReturnWithoutUpdatingPaymentOrOrder() {
-        var succeededPaymentAttempt = createSucceededPaymentAttempt("ref-repeat");
-        when(paymentAttemptRepository.findById(succeededPaymentAttempt.getId()))
-                .thenReturn(Optional.of(succeededPaymentAttempt));
-
-        var repeatedSuccessResponse = paymentAttemptService.markAsSucceeded(
-                orderId, succeededPaymentAttempt.getId(), "ref-repeat");
-
-        assertEquals(succeededPaymentAttempt.getId(), repeatedSuccessResponse.id());
-        assertEquals(PaymentStatus.SUCCEEDED, repeatedSuccessResponse.status());
-        assertEquals("ref-repeat", repeatedSuccessResponse.providerRef());
-        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
-    }
-
-    @Test
-    void markAsFailed_WhenSameNotificationIsRepeated_ShouldReturnWithoutSavingOrUpdatingOrder() {
-        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
-        payment.markAsFailed(402, "Declined");
-        when(paymentAttemptRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
-
-        var result = paymentAttemptService.markAsFailed(orderId, payment.getId(), 402, "Declined");
-
-        assertEquals(payment.getId(), result.id());
-        assertEquals(PaymentStatus.FAILED, result.status());
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi, productInternalApi);
-    }
-
-    @Test
-    void createPaymentAttempt_WhenOrderCannotStartPayment_ShouldPropagateRejectionWithoutSaving() {
-        mockCustomer(CustomerStatus.ACTIVE);
-        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
-        when(orderInternalApi.getOrderDataForPayment(orderId))
-                .thenReturn(new OrderData(orderId, customerId, BigDecimal.ZERO));
-        doThrow(new InvalidOrderStateException("Order must contain items and have a positive total to start payment."))
-                .when(orderInternalApi).markAsPaymentInProgress(orderId);
-
-        var result = assertThrows(InvalidOrderStateException.class,
-                () -> paymentAttemptService.createPaymentAttempt(orderId, request));
-
-        assertEquals("Order must contain items and have a positive total to start payment.", result.getMessage());
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-    }
-
-    @Test
-    void createPaymentAttempt_WhenCustomerIsBlocked_ShouldRejectWithoutSavingOrLockingOrder() {
-        mockCustomer(CustomerStatus.BLOCKED);
-        when(orderInternalApi.getOrderDataForPayment(orderId))
-                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
-        var request = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
-
-        var result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttemptService.createPaymentAttempt(orderId, request));
-
-        assertEquals("Blocked customers cannot start payments.", result.getMessage());
-        verify(orderInternalApi, never()).markAsPaymentInProgress(any(UUID.class));
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-    }
-
-    @Test
-    void startProcessing_WhenCustomerIsBlocked_ShouldRejectWithoutChangingPayment() {
-        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
-        when(paymentAttemptRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
-        when(orderInternalApi.getOrderById(orderId)).thenReturn(OrderResponse.builder()
-                .setId(orderId).customerId(customerId).build());
-        mockCustomer(CustomerStatus.BLOCKED);
-
-        var result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttemptService.startProcessing(orderId, payment.getId()));
-
-        assertEquals("Blocked customers cannot start payments.", result.getMessage());
-        assertEquals(PaymentStatus.CREATED, payment.getStatus());
-        verify(paymentAttemptRepository, never()).startProcessingIfAvailable(any(UUID.class));
-        verifyNoInteractions(entityManager, productInternalApi);
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(orderInternalApi, never()).getOrderDataForPayment(any(UUID.class));
-    }
-
-    @Test
-    void createPaymentAttempt_WhenExistingKeyBelongsToSameOrder_ShouldNotRevalidateCustomer() {
-        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
-        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY)).thenReturn(Optional.of(payment));
-
-        var result = paymentAttemptService.createPaymentAttempt(orderId,
-                new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY));
-
-        assertEquals(payment.getId(), result.id());
-        verifyNoInteractions(customerInternalApi, orderInternalApi, productInternalApi);
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-    }
-
     private void mockCustomer(CustomerStatus status) {
         when(customerInternalApi.getCustomer(customerId)).thenReturn(CustomerResponse.builder()
                 .id(customerId).name("Test Customer").email("customer@example.com").status(status).build());
-    }
-
-    @Test
-    void createPaymentAttempt_WhenOrderHasMultipleProducts_ShouldReserveEveryItemBeforeSaving() {
-        mockCustomer(CustomerStatus.ACTIVE);
-        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
-        when(orderInternalApi.getOrderDataForPayment(orderId))
-                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
-        when(orderInternalApi.getAllOrderItemsFromOrder(orderId)).thenReturn(List.of(
-                createOrderItemResponse("SKU-FIRST", 2L), createOrderItemResponse("SKU-SECOND", 3L)));
-        mockPaymentRepositorySave();
-
-        var createdPaymentResponse = paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest);
-
-        InOrder reservationSequence = inOrder(orderInternalApi, productInternalApi, paymentAttemptRepository);
-        reservationSequence.verify(orderInternalApi).getAllOrderItemsFromOrder(orderId);
-        reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
-        reservationSequence.verify(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
-        reservationSequence.verify(orderInternalApi).markAsPaymentInProgress(orderId);
-        reservationSequence.verify(paymentAttemptRepository).save(any(PaymentAttemptEntity.class));
-        assertEquals(PaymentStatus.CREATED, createdPaymentResponse.status());
-    }
-
-    @Test
-    void createPaymentAttempt_WhenReservationFails_ShouldPropagateFailureWithoutSaving() {
-        mockCustomer(CustomerStatus.ACTIVE);
-        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
-        when(orderInternalApi.getOrderDataForPayment(orderId))
-                .thenReturn(new OrderData(orderId, customerId, DEFAULT_AMOUNT_TOTAL));
-        when(orderInternalApi.getAllOrderItemsFromOrder(orderId)).thenReturn(List.of(
-                createOrderItemResponse("SKU-FIRST", 2L), createOrderItemResponse("SKU-SECOND", 3L)));
-        doNothing().when(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
-        doThrow(new InsufficientStockException()).when(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
-
-        var reservationException = assertThrows(InsufficientStockException.class,
-                () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
-
-        assertEquals("Insufficient stock.", reservationException.getMessage());
-        verify(productInternalApi).decreaseProductStock("SKU-FIRST", 2L);
-        verify(productInternalApi).decreaseProductStock("SKU-SECOND", 3L);
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
     }
 
     private OrderItemResponse createOrderItemResponse(String sku, long quantity) {
@@ -752,46 +860,19 @@ public class PaymentAttemptServiceTest {
                 .build();
     }
 
-    @Test
-    void markAsSucceeded_WhenRepeatedReferenceDiffers_ShouldRejectWithoutEffects() {
-        var succeededPaymentAttempt = createSucceededPaymentAttempt("original-reference");
-        when(paymentAttemptRepository.findById(succeededPaymentAttempt.getId()))
-                .thenReturn(Optional.of(succeededPaymentAttempt));
-
-        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttemptService.markAsSucceeded(orderId, succeededPaymentAttempt.getId(),
-                        "another-reference"));
-
-        assertEquals("Successful payment has a different provider reference.",
-                invalidPaymentStateException.getMessage());
-        assertEquals("original-reference", succeededPaymentAttempt.getProviderRef());
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
-        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
-    }
-
-    @Test
-    void markAsFailed_WhenRepeatedFailureDetailsDiffer_ShouldRejectWithoutEffects() {
-        var failedPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
-        failedPaymentAttempt.markAsFailed(402, "Declined");
-        when(paymentAttemptRepository.findById(failedPaymentAttempt.getId()))
-                .thenReturn(Optional.of(failedPaymentAttempt));
-
-        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttemptService.markAsFailed(orderId, failedPaymentAttempt.getId(), 500,
-                        "Another failure"));
-
-        assertEquals("Failed payment has different failure details.", invalidPaymentStateException.getMessage());
-        assertEquals(402, failedPaymentAttempt.getFailureCode());
-        assertEquals("Declined", failedPaymentAttempt.getFailureMessage());
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi, productInternalApi);
-    }
-
     private PaymentAttemptEntity createSucceededPaymentAttempt(String providerReference) {
         return PaymentAttemptEntity.builder().id(UUID.randomUUID()).orderId(orderId)
                 .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).status(PaymentStatus.SUCCEEDED)
                 .providerRef(providerReference).build();
+    }
+
+    private void mockRefreshedFailedPayment(PaymentAttemptEntity paymentAttempt, Integer failureCode, String failureMessage) {
+        doAnswer(invocation -> {
+            ReflectionTestUtils.setField(paymentAttempt, "status", PaymentStatus.FAILED);
+            ReflectionTestUtils.setField(paymentAttempt, "failureCode", failureCode);
+            ReflectionTestUtils.setField(paymentAttempt, "failureMessage", failureMessage);
+            return null;
+        }).when(entityManager).refresh(paymentAttempt);
     }
 
     private void mockRefreshedPaymentStatus(PaymentAttemptEntity paymentAttempt, PaymentStatus refreshedStatus) {

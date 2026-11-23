@@ -125,9 +125,8 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         payment = paymentRepository.findById(id).orElseThrow();
 
         paymentRepository.startProcessingIfAvailable(id);
-        entityManager.refresh(payment);
-        payment.markAsFailed(402, "Payment declined.");
-        paymentRepository.saveAndFlush(payment);
+        assertThat(paymentRepository.markAsFailedIfAvailable(payment.getIdempotencyKey(), 402, "Payment declined."))
+                .isEqualTo(1);
         entityManager.clear();
 
         var result = paymentRepository.findById(id).orElseThrow();
@@ -343,6 +342,74 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         var succeededPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
         assertThat(succeededPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
         assertThat(succeededPayment.getCreatedAt()).isEqualTo(processingPayment.getCreatedAt());
+    }
+
+    @Test
+    void shouldMarkOnlyPaymentWithRequestedIdempotencyKeyAsFailed() {
+        var requestedPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        var otherPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+
+        int updatedRows = paymentRepository.markAsFailedIfAvailable(requestedPayment.getIdempotencyKey(), 402, "Declined");
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        var failedPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(failedPayment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(failedPayment.getFailureCode()).isEqualTo(402);
+        assertThat(failedPayment.getFailureMessage()).isEqualTo("Declined");
+        assertThat(failedPayment.getOrderId()).isEqualTo(requestedPayment.getOrderId());
+        assertThat(failedPayment.getAmount()).isEqualByComparingTo(requestedPayment.getAmount());
+        var unchangedPayment = paymentRepository.findById(otherPayment.getId()).orElseThrow();
+        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(unchangedPayment.getFailureCode()).isNull();
+        assertThat(unchangedPayment.getFailureMessage()).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
+    void shouldRejectFailureForNonProcessingPaymentWithoutChangingDetailsOrTimestamp(PaymentStatus initialStatus) {
+        var originalPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
+                .orderId(UUID.randomUUID()).status(initialStatus).failureCode(402).failureMessage("Original failure")
+                .idempotencyKey(UUID.randomUUID().toString()).amount(new BigDecimal("247.00")).build());
+        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+
+        int updatedRows = paymentRepository.markAsFailedIfAvailable(originalPayment.getIdempotencyKey(), 500, "New failure");
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
+        assertThat(persistedPayment.getFailureCode()).isEqualTo(402);
+        assertThat(persistedPayment.getFailureMessage()).isEqualTo("Original failure");
+        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
+    }
+
+    @Test
+    void shouldReportZeroUpdatedRowsForFailureWithUnknownIdempotencyKey() {
+        var processingPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+
+        int updatedRows = paymentRepository.markAsFailedIfAvailable(UUID.randomUUID().toString(), 402, "Declined");
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        var unchangedPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
+        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(unchangedPayment.getFailureCode()).isNull();
+        assertThat(unchangedPayment.getFailureMessage()).isNull();
+    }
+
+    @Test
+    void shouldUpdateModificationTimestampWhenPaymentFails() {
+        var processingPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Instant previousUpdatedAt = setUpdatedAtInPast(processingPayment.getId());
+
+        int updatedRows = paymentRepository.markAsFailedIfAvailable(processingPayment.getIdempotencyKey(), 402, "Declined");
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        var failedPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
+        assertThat(failedPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
+        assertThat(failedPayment.getCreatedAt()).isEqualTo(processingPayment.getCreatedAt());
     }
 
     private Instant setUpdatedAtInPast(UUID paymentId) {

@@ -216,13 +216,19 @@ public class PaymentAttemptService {
             return PaymentAttemptMapper.toResponse(payment);
         }
 
-        payment.markAsFailed(code, errorMessage);
+        int updatedRows = paymentAttemptRepository.markAsFailedIfAvailable(payment.getIdempotencyKey(), code, errorMessage);
+
+        if (updatedRows == 0) {
+            throw new InvalidPaymentStateException("Only processing payments can fail.");
+        }
+
+        entityManager.refresh(payment);
 
         orderInternalApi.markAsPending(orderId);
 
         increaseStock(orderId);
 
-        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
+        return PaymentAttemptMapper.toResponse(payment);
     }
 
     /**

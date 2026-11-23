@@ -8,8 +8,6 @@ import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -119,18 +117,6 @@ public class PaymentAttemptEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
-    }
-
-    /** The payment failed. */
-    public void markAsFailed(Integer failureCode, String failureMessage) {
-        switch (status) {
-            case PROCESSING -> {
-                status = PaymentStatus.FAILED;
-                this.failureCode = failureCode;
-                this.failureMessage = failureMessage;
-            }
-            default -> throw new InvalidPaymentStateException("Only processing payments can fail.");
-        }
     }
 
     public static final class Builder {

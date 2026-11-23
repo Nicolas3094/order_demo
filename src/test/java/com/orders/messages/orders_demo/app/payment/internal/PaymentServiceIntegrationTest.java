@@ -379,6 +379,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
         paymentService.startProcessing(orderId, created.id());
         var first = paymentService.markAsFailed(orderId, created.id(), 402, "Declined");
         var version = readOrder(orderId).getVersion();
+        var firstFailureUpdatedAt = readPayment(created.id()).getUpdatedAt();
 
         var repeated = paymentService.markAsFailed(orderId, created.id(), 402, "Declined");
 
@@ -386,6 +387,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
         assertThat(repeated.status()).isEqualTo(first.status());
         assertThat(repeated.amount()).isEqualByComparingTo(first.amount());
         assertThat(readPayment(created.id()).getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(readPayment(created.id()).getUpdatedAt()).isEqualTo(firstFailureUpdatedAt);
         assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
         assertThat(readOrder(orderId).getVersion()).isEqualTo(version);
         assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
@@ -436,6 +438,22 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
             executor.shutdownNow();
             executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS);
         }
+    }
+
+    @Test
+    void shouldRollBackPaymentFailureWhenOrderCannotReturnToPending() {
+        UUID orderId = persistOrder();
+        UUID paymentId = persistPayment(orderId, PaymentStatus.PROCESSING);
+        changeOrderStatus(orderId, OrderStatus.CANCELLED);
+
+        assertThatThrownBy(() -> paymentService.markAsFailed(orderId, paymentId, 402, "Declined"))
+                .isInstanceOf(InvalidOrderStateException.class);
+
+        var processingPayment = readPayment(paymentId);
+        assertThat(processingPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(processingPayment.getFailureCode()).isNull();
+        assertThat(processingPayment.getFailureMessage()).isNull();
+        assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.CANCELLED);
     }
 
     private CreatePaymentAttemptRequest buildCreatePaymentRequest() {
