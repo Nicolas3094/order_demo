@@ -108,8 +108,8 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         var processing = paymentRepository.findById(id).orElseThrow();
         assertThat(processing.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
 
-        processing.markAsSucceeded("provider-ref-123");
-        paymentRepository.saveAndFlush(processing);
+        assertThat(paymentRepository.markAsSucceededIfAvailable(payment.getIdempotencyKey(), "provider-ref-123"))
+                .isEqualTo(1);
         entityManager.clear();
 
         var result = paymentRepository.findById(id).orElseThrow();
@@ -273,6 +273,76 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
 
         assertThat(updatedRows).isEqualTo(1);
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getUpdatedAt()).isAfter(previousUpdatedAt);
+    }
+
+    @Test
+    void shouldMarkOnlyPaymentWithRequestedIdempotencyKeyAsSucceeded() {
+        UUID orderId = UUID.randomUUID();
+        var requestedPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
+                .orderId(orderId).status(PaymentStatus.PROCESSING).idempotencyKey(UUID.randomUUID().toString())
+                .amount(new BigDecimal("247.00")).provider(PaymentProvider.STRIPE).build());
+        var otherPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
+                .orderId(orderId).status(PaymentStatus.PROCESSING).idempotencyKey(UUID.randomUUID().toString())
+                .amount(new BigDecimal("247.00")).provider(PaymentProvider.STRIPE).build());
+
+        int updatedRows = paymentRepository.markAsSucceededIfAvailable(requestedPayment.getIdempotencyKey(), "success-ref");
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        var succeededPayment = paymentRepository.findById(requestedPayment.getId()).orElseThrow();
+        assertThat(succeededPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(succeededPayment.getProviderRef()).isEqualTo("success-ref");
+        assertThat(succeededPayment.getOrderId()).isEqualTo(orderId);
+        assertThat(succeededPayment.getAmount()).isEqualByComparingTo("247.00");
+        assertThat(succeededPayment.getProvider()).isEqualTo(PaymentProvider.STRIPE);
+        var unchangedPayment = paymentRepository.findById(otherPayment.getId()).orElseThrow();
+        assertThat(unchangedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(unchangedPayment.getProviderRef()).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = EnumSource.Mode.EXCLUDE, names = "PROCESSING")
+    void shouldRejectSuccessForNonProcessingPaymentWithoutChangingReferenceOrTimestamp(PaymentStatus initialStatus) {
+        var originalPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
+                .orderId(UUID.randomUUID()).status(initialStatus).providerRef("original-reference")
+                .idempotencyKey(UUID.randomUUID().toString()).amount(new BigDecimal("247.00")).build());
+        Instant originalUpdatedAt = originalPayment.getUpdatedAt();
+
+        int updatedRows = paymentRepository.markAsSucceededIfAvailable(originalPayment.getIdempotencyKey(), "new-reference");
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getStatus()).isEqualTo(initialStatus);
+        assertThat(persistedPayment.getProviderRef()).isEqualTo("original-reference");
+        assertThat(persistedPayment.getUpdatedAt()).isEqualTo(originalUpdatedAt);
+    }
+
+    @Test
+    void shouldReportZeroUpdatedRowsForSuccessWithUnknownIdempotencyKey() {
+        var originalPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+
+        int updatedRows = paymentRepository.markAsSucceededIfAvailable(UUID.randomUUID().toString(), "success-ref");
+        entityManager.clear();
+
+        assertThat(updatedRows).isZero();
+        var persistedPayment = paymentRepository.findById(originalPayment.getId()).orElseThrow();
+        assertThat(persistedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(persistedPayment.getProviderRef()).isNull();
+    }
+
+    @Test
+    void shouldUpdateModificationTimestampWhenPaymentSucceeds() {
+        var processingPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        Instant previousUpdatedAt = setUpdatedAtInPast(processingPayment.getId());
+
+        int updatedRows = paymentRepository.markAsSucceededIfAvailable(processingPayment.getIdempotencyKey(), "success-ref");
+        entityManager.clear();
+
+        assertThat(updatedRows).isEqualTo(1);
+        var succeededPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
+        assertThat(succeededPayment.getUpdatedAt()).isAfter(previousUpdatedAt);
+        assertThat(succeededPayment.getCreatedAt()).isEqualTo(processingPayment.getCreatedAt());
     }
 
     private Instant setUpdatedAtInPast(UUID paymentId) {

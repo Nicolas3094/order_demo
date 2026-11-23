@@ -37,30 +37,6 @@ public class PaymentAttemptEntityTest {
     }
 
     @Test
-    public void markAsSucceeded_WhenStatusIsProcessing_ShouldSetProviderRefAndStatusAsSucceeded() {
-        String providerRef = "provider_ref";
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(PaymentStatus.PROCESSING);
-
-        paymentAttempt.markAsSucceeded(providerRef);
-
-        assertEquals(providerRef, paymentAttempt.getProviderRef());
-        assertEquals(PaymentStatus.SUCCEEDED, paymentAttempt.getStatus());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING" })
-    public void markAsSucceeded_WhenStatusIsOtherThanProcessing_ShouldThrowInvalidPaymentExceptionWithMessage(
-            PaymentStatus status) {
-        String providerRef = "provider_ref";
-        PaymentAttemptEntity paymentAttempt = createPaymentWithStatus(status);
-
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttempt.markAsSucceeded(providerRef));
-
-        assertEquals("Only processing payments can be marked as succeeded.", result.getMessage());
-    }
-
-    @Test
     public void markAsFailed_WhenStatusIsProcessing_ShouldSetStatusAsFailedAndSetFailureCodeAndMessage() {
         Integer statusCode = 500;
         String message = "Server error";

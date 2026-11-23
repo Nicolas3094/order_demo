@@ -176,11 +176,19 @@ public class PaymentAttemptService {
             return PaymentAttemptMapper.toResponse(payment);
         }
 
-        payment.markAsSucceeded(providerRef);
+        int updatedRow = paymentAttemptRepository.markAsSucceededIfAvailable(
+                /* idempotencyKey= */payment.getIdempotencyKey(),
+                /* providerRef= */ providerRef);
+
+        if (updatedRow == 0) {
+            throw new InvalidPaymentStateException("Only processing payments can be marked as succeeded.");
+        }
+
+        entityManager.refresh(payment);
 
         orderInternalApi.markAsPaid(orderId);
 
-        return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
+        return PaymentAttemptMapper.toResponse(payment);
     }
 
     /**

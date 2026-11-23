@@ -336,71 +336,102 @@ public class PaymentAttemptServiceTest {
         PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = paymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
-        mockPaymentRepositorySave();
-        doNothing().when(orderInternalApi).markAsPaid(orderId);
+        when(paymentAttemptRepository.markAsSucceededIfAvailable(DEFAULT_IDEMPOTENCY_KEY, DEFAULT_PROVIDER_REF))
+                .thenReturn(1);
+        doAnswer(invocation -> {
+            ReflectionTestUtils.setField(paymentAttempt, "status", PaymentStatus.SUCCEEDED);
+            ReflectionTestUtils.setField(paymentAttempt, "providerRef", DEFAULT_PROVIDER_REF);
+            return null;
+        }).when(entityManager).refresh(paymentAttempt);
 
-        PaymentAttemptResponse result = paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF);
+        PaymentAttemptResponse succeededPaymentResponse = paymentAttemptService.markAsSucceeded(
+                orderId, paymentId, DEFAULT_PROVIDER_REF);
 
-        verify(orderInternalApi).markAsPaid(orderId);
-        verify(paymentAttemptRepository).save(paymentCaptor.capture());
-        assertEquals(paymentCaptor.getValue().getId(), result.id());
-        assertEquals(PaymentStatus.SUCCEEDED, result.status());
-        assertEquals(DEFAULT_PROVIDER_REF, result.providerRef());
+        InOrder successSequence = inOrder(paymentAttemptRepository, entityManager, orderInternalApi);
+        successSequence.verify(paymentAttemptRepository).markAsSucceededIfAvailable(DEFAULT_IDEMPOTENCY_KEY,
+                DEFAULT_PROVIDER_REF);
+        successSequence.verify(entityManager).refresh(paymentAttempt);
+        successSequence.verify(orderInternalApi).markAsPaid(orderId);
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(productInternalApi);
+        assertEquals(paymentId, succeededPaymentResponse.id());
+        assertEquals(PaymentStatus.SUCCEEDED, succeededPaymentResponse.status());
+        assertEquals(DEFAULT_PROVIDER_REF, succeededPaymentResponse.providerRef());
     }
 
     @Test
-    public void markAsSucceeded_WhenProcessingPaymentIsNotFound_ShouldThrowPaymentNotFoundException() {
+    void markAsSucceeded_WhenPaymentIsNotFound_ShouldRejectWithoutUpdating() {
         paymentId = UUID.randomUUID();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.empty());
 
-        PaymentNotFoundException result = assertThrows(PaymentNotFoundException.class,
+        var paymentNotFoundException = assertThrows(PaymentNotFoundException.class,
                 () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
 
-        assertEquals("Payment attempt not found.", result.getMessage());
-        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(orderInternalApi, never()).markAsPaid(orderId);
+        assertEquals("Payment attempt not found.", paymentNotFoundException.getMessage());
+        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
     @Test
-    public void markAsSucceeded__WhenPaymentOrderIdNotEqualToOrderId_ThrowsPaymentNotFoundException() {
-        PaymentAttemptEntity payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+    void markAsSucceeded_WhenPaymentBelongsToAnotherOrder_ShouldRejectWithoutUpdating() {
+        var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        paymentId = processingPaymentAttempt.getId();
         UUID otherOrderId = UUID.randomUUID();
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(payment));
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
 
-        PaymentNotFoundException result = assertThrows(PaymentNotFoundException.class,
+        var paymentNotFoundException = assertThrows(PaymentNotFoundException.class,
                 () -> paymentAttemptService.markAsSucceeded(otherOrderId, paymentId, DEFAULT_PROVIDER_REF));
 
-        assertEquals("Payment attempt not found.", result.getMessage());
+        assertEquals("Payment attempt not found.", paymentNotFoundException.getMessage());
+        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
     @Test
-    public void markAsSucceeded_WhenOrderCannotAcceptPayments_ShouldThrowInvalidPaymentStateException() {
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
-        paymentId = paymentAttempt.getId();
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
+    void markAsSucceeded_WhenOrderCannotBeMarkedPaid_ShouldPropagateRejectionAfterRefreshingPayment() {
+        var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
+        paymentId = processingPaymentAttempt.getId();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
+        when(paymentAttemptRepository.markAsSucceededIfAvailable(DEFAULT_IDEMPOTENCY_KEY, DEFAULT_PROVIDER_REF))
+                .thenReturn(1);
+        doAnswer(invocation -> {
+            ReflectionTestUtils.setField(processingPaymentAttempt, "status", PaymentStatus.SUCCEEDED);
+            ReflectionTestUtils.setField(processingPaymentAttempt, "providerRef", DEFAULT_PROVIDER_REF);
+            return null;
+        }).when(entityManager).refresh(processingPaymentAttempt);
         doThrow(new InvalidOrderStateException("Only pending orders can be marked as paid."))
                 .when(orderInternalApi).markAsPaid(orderId);
 
-        InvalidOrderStateException result = assertThrows(InvalidOrderStateException.class,
+        var invalidOrderStateException = assertThrows(InvalidOrderStateException.class,
                 () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
 
-        assertEquals("Only pending orders can be marked as paid.", result.getMessage());
-        verify(orderInternalApi).markAsPaid(orderId);
+        assertEquals("Only pending orders can be marked as paid.", invalidOrderStateException.getMessage());
+        InOrder successSequence = inOrder(paymentAttemptRepository, entityManager, orderInternalApi);
+        successSequence.verify(paymentAttemptRepository).markAsSucceededIfAvailable(DEFAULT_IDEMPOTENCY_KEY,
+                DEFAULT_PROVIDER_REF);
+        successSequence.verify(entityManager).refresh(processingPaymentAttempt);
+        successSequence.verify(orderInternalApi).markAsPaid(orderId);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(productInternalApi);
     }
 
     @ParameterizedTest
-    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = { "PROCESSING", "SUCCEEDED" })
-    public void markAsSucceeded_WhenNonProcessingPaymentIsFoundAndOrderCanAcceptPayments_ShouldThrowInvalidPaymentStateException(
-            PaymentStatus paymentStatus) {
-        PaymentAttemptEntity paymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, paymentStatus);
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(paymentAttempt));
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = "SUCCEEDED")
+    void markAsSucceeded_WhenConditionalUpdateAffectsNoRows_ShouldRejectWithoutEffects(PaymentStatus initialStatus) {
+        var originalPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, initialStatus);
+        paymentId = originalPaymentAttempt.getId();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(originalPaymentAttempt));
+        when(paymentAttemptRepository.markAsSucceededIfAvailable(DEFAULT_IDEMPOTENCY_KEY, DEFAULT_PROVIDER_REF))
+                .thenReturn(0);
 
-        InvalidPaymentStateException result = assertThrows(InvalidPaymentStateException.class,
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
                 () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
 
-        assertEquals("Only processing payments can be marked as succeeded.", result.getMessage());
+        assertEquals("Only processing payments can be marked as succeeded.", invalidPaymentStateException.getMessage());
+        assertEquals(initialStatus, originalPaymentAttempt.getStatus());
+        verify(paymentAttemptRepository).markAsSucceededIfAvailable(DEFAULT_IDEMPOTENCY_KEY, DEFAULT_PROVIDER_REF);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verify(orderInternalApi, never()).markAsPaid(any(UUID.class));
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
     /*
@@ -482,7 +513,8 @@ public class PaymentAttemptServiceTest {
 
         var cancelledPaymentResponse = paymentAttemptService.markAsCancelled(orderId, paymentId);
 
-        InOrder cancellationSequence = inOrder(paymentAttemptRepository, entityManager, productInternalApi, orderInternalApi);
+        InOrder cancellationSequence = inOrder(paymentAttemptRepository, entityManager, productInternalApi,
+                orderInternalApi);
         cancellationSequence.verify(paymentAttemptRepository).cancelIfAvailable(paymentId);
         cancellationSequence.verify(entityManager).refresh(originalPaymentAttempt);
         cancellationSequence.verify(productInternalApi).increaseProductStock("SKU-RESTORE", 2L);
@@ -522,7 +554,8 @@ public class PaymentAttemptServiceTest {
 
     @ParameterizedTest
     @EnumSource(PaymentStatus.class)
-    void markAsCancelled_WhenConditionalUpdateAffectsNoRows_ShouldRejectWithoutRestoringStock(PaymentStatus initialStatus) {
+    void markAsCancelled_WhenConditionalUpdateAffectsNoRows_ShouldRejectWithoutRestoringStock(
+            PaymentStatus initialStatus) {
         var originalPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, initialStatus);
         paymentId = originalPaymentAttempt.getId();
         when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(originalPaymentAttempt));
@@ -531,7 +564,8 @@ public class PaymentAttemptServiceTest {
         var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
                 () -> paymentAttemptService.markAsCancelled(orderId, paymentId));
 
-        assertEquals("Only created or processing payments can be cancelled.", invalidPaymentStateException.getMessage());
+        assertEquals("Only created or processing payments can be cancelled.",
+                invalidPaymentStateException.getMessage());
         assertEquals(initialStatus, originalPaymentAttempt.getStatus());
         verify(paymentAttemptRepository).cancelIfAvailable(paymentId);
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
@@ -563,17 +597,20 @@ public class PaymentAttemptServiceTest {
     }
 
     @Test
-    void markAsSucceeded_WhenSameNotificationIsRepeated_ShouldReturnWithoutSavingOrUpdatingOrder() {
-        var payment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
-        payment.markAsSucceeded("ref-repeat");
-        when(paymentAttemptRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
+    void markAsSucceeded_WhenSameNotificationIsRepeated_ShouldReturnWithoutUpdatingPaymentOrOrder() {
+        var succeededPaymentAttempt = createSucceededPaymentAttempt("ref-repeat");
+        when(paymentAttemptRepository.findById(succeededPaymentAttempt.getId()))
+                .thenReturn(Optional.of(succeededPaymentAttempt));
 
-        var result = paymentAttemptService.markAsSucceeded(orderId, payment.getId(), "ref-repeat");
+        var repeatedSuccessResponse = paymentAttemptService.markAsSucceeded(
+                orderId, succeededPaymentAttempt.getId(), "ref-repeat");
 
-        assertEquals(payment.getId(), result.id());
-        assertEquals(PaymentStatus.SUCCEEDED, result.status());
+        assertEquals(succeededPaymentAttempt.getId(), repeatedSuccessResponse.id());
+        assertEquals(PaymentStatus.SUCCEEDED, repeatedSuccessResponse.status());
+        assertEquals("ref-repeat", repeatedSuccessResponse.providerRef());
+        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi, productInternalApi);
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
     @Test
@@ -717,34 +754,44 @@ public class PaymentAttemptServiceTest {
 
     @Test
     void markAsSucceeded_WhenRepeatedReferenceDiffers_ShouldRejectWithoutEffects() {
-        var succeededPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
-        succeededPaymentAttempt.markAsSucceeded("original-reference");
+        var succeededPaymentAttempt = createSucceededPaymentAttempt("original-reference");
         when(paymentAttemptRepository.findById(succeededPaymentAttempt.getId()))
                 .thenReturn(Optional.of(succeededPaymentAttempt));
 
         var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttemptService.markAsSucceeded(orderId, succeededPaymentAttempt.getId(), "another-reference"));
+                () -> paymentAttemptService.markAsSucceeded(orderId, succeededPaymentAttempt.getId(),
+                        "another-reference"));
 
-        assertEquals("Successful payment has a different provider reference.", invalidPaymentStateException.getMessage());
+        assertEquals("Successful payment has a different provider reference.",
+                invalidPaymentStateException.getMessage());
         assertEquals("original-reference", succeededPaymentAttempt.getProviderRef());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
-        verifyNoInteractions(orderInternalApi, productInternalApi);
+        verify(paymentAttemptRepository, never()).markAsSucceededIfAvailable(anyString(), anyString());
+        verifyNoInteractions(entityManager, orderInternalApi, productInternalApi);
     }
 
     @Test
     void markAsFailed_WhenRepeatedFailureDetailsDiffer_ShouldRejectWithoutEffects() {
         var failedPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         failedPaymentAttempt.markAsFailed(402, "Declined");
-        when(paymentAttemptRepository.findById(failedPaymentAttempt.getId())).thenReturn(Optional.of(failedPaymentAttempt));
+        when(paymentAttemptRepository.findById(failedPaymentAttempt.getId()))
+                .thenReturn(Optional.of(failedPaymentAttempt));
 
         var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
-                () -> paymentAttemptService.markAsFailed(orderId, failedPaymentAttempt.getId(), 500, "Another failure"));
+                () -> paymentAttemptService.markAsFailed(orderId, failedPaymentAttempt.getId(), 500,
+                        "Another failure"));
 
         assertEquals("Failed payment has different failure details.", invalidPaymentStateException.getMessage());
         assertEquals(402, failedPaymentAttempt.getFailureCode());
         assertEquals("Declined", failedPaymentAttempt.getFailureMessage());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
         verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    private PaymentAttemptEntity createSucceededPaymentAttempt(String providerReference) {
+        return PaymentAttemptEntity.builder().id(UUID.randomUUID()).orderId(orderId)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).status(PaymentStatus.SUCCEEDED)
+                .providerRef(providerReference).build();
     }
 
     private void mockRefreshedPaymentStatus(PaymentAttemptEntity paymentAttempt, PaymentStatus refreshedStatus) {

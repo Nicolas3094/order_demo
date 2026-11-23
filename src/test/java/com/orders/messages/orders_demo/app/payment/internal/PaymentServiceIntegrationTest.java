@@ -357,6 +357,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
         paymentService.startProcessing(orderId, created.id());
         var first = paymentService.markAsSucceeded(orderId, created.id(), "ref-repeat");
         var version = readOrder(orderId).getVersion();
+        var firstSuccessUpdatedAt = readPayment(created.id()).getUpdatedAt();
 
         var repeated = paymentService.markAsSucceeded(orderId, created.id(), "ref-repeat");
 
@@ -364,6 +365,7 @@ class PaymentServiceIntegrationTest extends PostgresContainer {
         assertThat(repeated.status()).isEqualTo(first.status());
         assertThat(repeated.amount()).isEqualByComparingTo(first.amount());
         assertThat(readPayment(created.id()).getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(readPayment(created.id()).getUpdatedAt()).isEqualTo(firstSuccessUpdatedAt);
         assertThat(readOrder(orderId).getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(readOrder(orderId).getVersion()).isEqualTo(version);
         assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);

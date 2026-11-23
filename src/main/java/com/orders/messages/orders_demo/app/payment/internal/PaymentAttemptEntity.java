@@ -121,21 +121,6 @@ public class PaymentAttemptEntity {
         return updatedAt;
     }
 
-    /**
-     * The money has already been collected.
-     * 
-     * @param providerRef The references sent by the provider.
-     */
-    public void markAsSucceeded(String providerRef) {
-        switch (status) {
-            case PROCESSING -> {
-                this.providerRef = providerRef;
-                status = PaymentStatus.SUCCEEDED;
-            }
-            default -> throw new InvalidPaymentStateException("Only processing payments can be marked as succeeded.");
-        }
-    }
-
     /** The payment failed. */
     public void markAsFailed(Integer failureCode, String failureMessage) {
         switch (status) {

@@ -431,6 +431,112 @@ class PaymentStockReservationIntegrationTest extends PostgresContainer {
         }
     }
 
+    @Test
+    void shouldRejectStaleSuccessAfterCancellationCommitsAndKeepRestoredStock() throws Exception {
+        UUID productId = persistProduct("SKU-CANCEL-BEFORE-SUCCESS", 5L);
+        UUID orderId = persistOrder("SKU-CANCEL-BEFORE-SUCCESS", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+        paymentService.startProcessing(orderId, paymentId);
+        var successSnapshotRead = new CountDownLatch(1);
+        var cancellationCommitted = new CountDownLatch(1);
+        var paymentExecutor = Executors.newSingleThreadExecutor();
+
+        try {
+            var successFuture = paymentExecutor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                var paymentBeforeCancellation = paymentRepository.findById(paymentId).orElseThrow();
+                var orderBeforeCancellation = orderRepository.findById(orderId).orElseThrow();
+                assertThat(paymentBeforeCancellation.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+                assertThat(orderBeforeCancellation.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+                successSnapshotRead.countDown();
+                awaitPaymentSignal(cancellationCommitted, "Cancellation must commit before success is attempted");
+
+                paymentService.markAsSucceeded(orderId, paymentId, "stale-success-ref");
+            }));
+            awaitPaymentSignal(successSnapshotRead, "Payment and order must be read before cancellation");
+
+            paymentService.markAsCancelled(orderId, paymentId);
+            cancellationCommitted.countDown();
+            Throwable successFailure = catchThrowable(() -> successFuture.get(20, TimeUnit.SECONDS));
+
+            assertThat(successFailure).isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
+            assertThat(successFailure.getCause()).hasMessage("Only processing payments can be marked as succeeded.");
+            var cancelledPayment = paymentRepository.findById(paymentId).orElseThrow();
+            assertThat(cancelledPayment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+            assertThat(cancelledPayment.getProviderRef()).isNull();
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+            assertThat(readAvailableStock(productId)).isEqualTo(5L);
+            assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+        } finally {
+            cancellationCommitted.countDown();
+            paymentExecutor.shutdownNow();
+            assertThat(paymentExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void shouldRejectStaleCancellationAfterSuccessCommitsAndKeepReservedStock() throws Exception {
+        UUID productId = persistProduct("SKU-SUCCESS-BEFORE-CANCEL", 5L);
+        UUID orderId = persistOrder("SKU-SUCCESS-BEFORE-CANCEL", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+        paymentService.startProcessing(orderId, paymentId);
+        var cancellationSnapshotRead = new CountDownLatch(1);
+        var successCommitted = new CountDownLatch(1);
+        var paymentExecutor = Executors.newSingleThreadExecutor();
+
+        try {
+            var cancellationFuture = paymentExecutor.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                var paymentBeforeSuccess = paymentRepository.findById(paymentId).orElseThrow();
+                var orderBeforeSuccess = orderRepository.findById(orderId).orElseThrow();
+                assertThat(paymentBeforeSuccess.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+                assertThat(orderBeforeSuccess.getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+                cancellationSnapshotRead.countDown();
+                awaitPaymentSignal(successCommitted, "Success must commit before cancellation is attempted");
+
+                paymentService.markAsCancelled(orderId, paymentId);
+            }));
+            awaitPaymentSignal(cancellationSnapshotRead, "Payment and order must be read before success");
+
+            paymentService.markAsSucceeded(orderId, paymentId, "committed-success-ref");
+            successCommitted.countDown();
+            Throwable cancellationFailure = catchThrowable(() -> cancellationFuture.get(20, TimeUnit.SECONDS));
+
+            assertThat(cancellationFailure).isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(InvalidPaymentStateException.class);
+            assertThat(cancellationFailure.getCause()).hasMessage("Only created or processing payments can be cancelled.");
+            var succeededPayment = paymentRepository.findById(paymentId).orElseThrow();
+            assertThat(succeededPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+            assertThat(succeededPayment.getProviderRef()).isEqualTo("committed-success-ref");
+            assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAID);
+            assertThat(readAvailableStock(productId)).isEqualTo(3L);
+            assertThat(paymentRepository.findByOrderId(orderId)).hasSize(1);
+        } finally {
+            successCommitted.countDown();
+            paymentExecutor.shutdownNow();
+            assertThat(paymentExecutor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void shouldKeepProcessingPaymentAndReservedStockWhenSuccessReferenceCannotBePersisted() {
+        UUID productId = persistProduct("SKU-INVALID-SUCCESS-REF", 5L);
+        UUID orderId = persistOrder("SKU-INVALID-SUCCESS-REF", 2L);
+        var createdPaymentResponse = paymentService.createPaymentAttempt(orderId, createPaymentRequest());
+        UUID paymentId = createdPaymentResponse.id();
+        paymentService.startProcessing(orderId, paymentId);
+
+        assertThatThrownBy(() -> paymentService.markAsSucceeded(orderId, paymentId, "R".repeat(101)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        var processingPayment = paymentRepository.findById(paymentId).orElseThrow();
+        assertThat(processingPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(processingPayment.getProviderRef()).isNull();
+        assertThat(orderRepository.findById(orderId).orElseThrow().getStatus()).isEqualTo(OrderStatus.PAYMENT_IN_PROGRESS);
+        assertThat(readAvailableStock(productId)).isEqualTo(3L);
+    }
+
     private void awaitPaymentSignal(CountDownLatch paymentSignal, String description) {
         try {
             assertThat(paymentSignal.await(10, TimeUnit.SECONDS)).as(description).isTrue();

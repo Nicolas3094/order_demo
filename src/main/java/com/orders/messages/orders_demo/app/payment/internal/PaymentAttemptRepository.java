@@ -31,4 +31,17 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttemptEn
                 AND (status = 'CREATED' or status = 'PROCESSING')
             """, nativeQuery = true)
     int cancelIfAvailable(@Param("paymentAttemptId") UUID paymentAttemptId);
+
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            UPDATE payment_attempt
+            SET status = 'SUCCEEDED',
+                updated_at = CURRENT_TIMESTAMP,
+                provider_ref = :providerRef
+            WHERE idempotency_key = :idempotencyKey
+                AND status = 'PROCESSING'
+            """, nativeQuery = true)
+    int markAsSucceededIfAvailable(
+            @Param("idempotencyKey") String idempotencyKey,
+            @Param("providerRef") String providerRef);
 }
