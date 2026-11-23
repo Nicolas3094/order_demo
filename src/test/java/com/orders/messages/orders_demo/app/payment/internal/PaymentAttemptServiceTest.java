@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -440,6 +441,32 @@ public class PaymentAttemptServiceTest {
         assertEquals(DEFAULT_PROVIDER_REF, succeededPaymentResponse.providerRef());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = PaymentProvider.class, names = { "STRIPE", "PAYPAL" })
+    void markAsSucceeded_WhenReferenceBelongsToAnotherPaymentOfSameProvider_ShouldRejectWithoutEffects(
+            PaymentProvider paymentProvider) {
+        var processingPaymentAttempt = PaymentAttemptEntity.builder()
+                .id(UUID.randomUUID()).orderId(orderId).provider(paymentProvider)
+                .status(PaymentStatus.PROCESSING).idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).build();
+        paymentId = processingPaymentAttempt.getId();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
+        when(paymentAttemptRepository.existsByProviderAndProviderRef(paymentProvider, DEFAULT_PROVIDER_REF))
+                .thenReturn(true);
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
+
+        assertEquals("A successful payment has the same provider reference.", invalidPaymentStateException.getMessage());
+        assertEquals(PaymentStatus.PROCESSING, processingPaymentAttempt.getStatus());
+        assertNull(processingPaymentAttempt.getProviderRef());
+        InOrder referenceValidationSequence = inOrder(paymentAttemptRepository);
+        referenceValidationSequence.verify(paymentAttemptRepository).findById(paymentId);
+        referenceValidationSequence.verify(paymentAttemptRepository)
+                .existsByProviderAndProviderRef(paymentProvider, DEFAULT_PROVIDER_REF);
+        verifyNoMoreInteractions(paymentAttemptRepository);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
     @Test
     void markAsSucceeded_WhenPaymentIsNotFound_ShouldRejectWithoutUpdating() {
         paymentId = UUID.randomUUID();
@@ -512,6 +539,7 @@ public class PaymentAttemptServiceTest {
         assertEquals(PaymentStatus.SUCCEEDED, repeatedSuccessResponse.status());
         assertEquals("ref-repeat", repeatedSuccessResponse.providerRef());
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verify(paymentAttemptRepository, never()).existsByProviderAndProviderRef(any(PaymentProvider.class), anyString());
         verifyNoInteractions(orderInternalApi, productInternalApi);
     }
 

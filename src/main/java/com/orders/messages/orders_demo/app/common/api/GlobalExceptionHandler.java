@@ -3,7 +3,9 @@ package com.orders.messages.orders_demo.app.common.api;
 import java.time.Instant;
 import java.util.Optional;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.http.ResponseEntity;
@@ -135,6 +137,24 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleInvalidProductException(
             InvalidProductException e, HttpServletRequest request) {
         return handleInvalid(e, request);
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolationException(
+            DataIntegrityViolationException e, HttpServletRequest request) {
+        Throwable cause = e;
+        while (cause != null) {
+            if (cause instanceof ConstraintViolationException constraintViolation
+                    && "uk_provider_provider_ref".equals(constraintViolation.getConstraintName())) {
+                ErrorResponse response = new ErrorResponse(
+                        Instant.now(), HttpStatus.CONFLICT.value(), HttpStatus.CONFLICT.getReasonPhrase(),
+                        "A successful payment has the same provider reference.", request.getRequestURI());
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+            }
+            cause = cause.getCause();
+        }
+
+        return handleUnexpectedException(e, request);
     }
 
     /**

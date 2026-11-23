@@ -3,6 +3,7 @@ package com.orders.messages.orders_demo.app.payment.internal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 
 import org.springframework.stereotype.Service;
 
@@ -11,7 +12,6 @@ import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
-import com.orders.messages.orders_demo.app.order.api.OrderItemResponse;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
 import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
@@ -159,11 +159,15 @@ public class PaymentAttemptService {
 
         if (PaymentStatus.SUCCEEDED.equals(payment.getStatus())) {
 
-            if (!providerRef.equals(payment.getProviderRef())) {
-                throw new InvalidPaymentStateException("Successful payment has a different provider reference.");
+            if (providerRef.equals(payment.getProviderRef())) {
+                return PaymentAttemptMapper.toResponse(payment);
             }
 
-            return PaymentAttemptMapper.toResponse(payment);
+            throw new InvalidPaymentStateException("Successful payment has a different provider reference.");
+        }
+
+        if (paymentAttemptRepository.existsByProviderAndProviderRef(payment.getProvider(), providerRef)) {
+            throw new InvalidPaymentStateException("A successful payment has the same provider reference.");
         }
 
         payment.markAsSucceeded(providerRef);
@@ -261,24 +265,16 @@ public class PaymentAttemptService {
     }
 
     private void increaseStock(UUID orderId) {
-
-        List<OrderItemResponse> orderItems = orderInternalApi.getAllOrderItemsFromOrder(orderId);
-
-        for (var orderItem : orderItems) {
-            Long requestedQuantity = orderItem.quantity();
-
-            productInternalApi.increaseProductStock(orderItem.sku(), requestedQuantity);
-        }
+        balanceStock(orderId, productInternalApi::increaseProductStock);
     }
 
     private void decreaseStock(UUID orderId) {
+        balanceStock(orderId, productInternalApi::decreaseProductStock);
+    }
 
-        List<OrderItemResponse> orderItems = orderInternalApi.getAllOrderItemsFromOrder(orderId);
-
-        for (var orderItem : orderItems) {
-            Long requestedQuantity = orderItem.quantity();
-
-            productInternalApi.decreaseProductStock(orderItem.sku(), requestedQuantity);
+    private void balanceStock(UUID orderId, BiConsumer<String, Long> action) {
+        for (var orderItem : orderInternalApi.getAllOrderItemsFromOrder(orderId)) {
+            action.accept(orderItem.sku(), orderItem.quantity());
         }
     }
 }

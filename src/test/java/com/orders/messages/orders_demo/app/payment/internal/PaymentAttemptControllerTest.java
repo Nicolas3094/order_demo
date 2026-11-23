@@ -3,6 +3,11 @@ package com.orders.messages.orders_demo.app.payment.internal;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
+import java.sql.SQLException;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -50,6 +55,75 @@ public class PaymentAttemptControllerTest {
     public void setup() {
         orderId = UUID.randomUUID();
         paymentId = UUID.randomUUID();
+    }
+
+    @Test
+    void markAsSucceeded_WhenProviderReferenceConstraintIsViolated_ShouldReturn409WithBusinessMessage() throws Exception {
+        var referenceConflict = createConstraintViolation("uk_provider_provider_ref");
+
+        assertPaymentSuccessError(referenceConflict, HttpStatus.CONFLICT,
+                "A successful payment has the same provider reference.");
+    }
+
+    @Test
+    void markAsSucceeded_WhenProviderReferenceConflictHasNestedCause_ShouldReturn409WithBusinessMessage() throws Exception {
+        var constraintViolation = createConstraintViolation("uk_provider_provider_ref");
+        var nestedReferenceConflict = new DataIntegrityViolationException("Internal SQL details.",
+                new IllegalStateException("Transaction failed.", constraintViolation));
+
+        assertPaymentSuccessError(nestedReferenceConflict, HttpStatus.CONFLICT,
+                "A successful payment has the same provider reference.");
+    }
+
+    @Test
+    void markAsSucceeded_WhenAnotherConstraintIsViolated_ShouldReturn500WithoutSqlDetails() throws Exception {
+        var unrelatedConstraintViolation = createConstraintViolation("uk_idempotency_key");
+
+        assertPaymentSuccessError(unrelatedConstraintViolation, HttpStatus.INTERNAL_SERVER_ERROR,
+                "Unexpected server error.");
+    }
+
+    @Test
+    void markAsSucceeded_WhenSqlMessageMentionsReferenceConstraintWithoutMetadata_ShouldReturn500() throws Exception {
+        var unrelatedDatabaseFailure = new DataIntegrityViolationException(
+                "SQL mentions uk_provider_provider_ref but does not report that constraint.",
+                new SQLException("Internal SQL details: value too long.", "22001"));
+
+        assertPaymentSuccessError(unrelatedDatabaseFailure, HttpStatus.INTERNAL_SERVER_ERROR,
+                "Unexpected server error.");
+    }
+
+    @Test
+    void markAsSucceeded_WhenIntegrityFailureHasNoCause_ShouldReturn500WithoutInternalDetails() throws Exception {
+        var databaseFailureWithoutCause = new DataIntegrityViolationException("Internal SQL details.");
+
+        assertPaymentSuccessError(databaseFailureWithoutCause, HttpStatus.INTERNAL_SERVER_ERROR,
+                "Unexpected server error.");
+    }
+
+    private DataIntegrityViolationException createConstraintViolation(String constraintName) {
+        var sqlException = new SQLException("Internal SQL details: duplicate key.", "23505");
+        var constraintViolation = new ConstraintViolationException("Internal constraint details.", sqlException,
+                constraintName);
+        return new DataIntegrityViolationException("Internal database details.", constraintViolation);
+    }
+
+    private void assertPaymentSuccessError(DataIntegrityViolationException databaseFailure, HttpStatus expectedStatus,
+            String expectedMessage) throws Exception {
+        when(paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF)).thenThrow(databaseFailure);
+        String paymentSuccessPath = "/api/v1/orders/" + orderId + "/payments/" + paymentId + "/succeeded";
+
+        mvc.perform(patch(paymentSuccessPath)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new PaymentSucceededRequest(DEFAULT_PROVIDER_REF))))
+                .andExpect(status().is(expectedStatus.value()))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.status").value(expectedStatus.value()))
+                .andExpect(jsonPath("$.error").value(expectedStatus.getReasonPhrase()))
+                .andExpect(jsonPath("$.message").value(expectedMessage))
+                .andExpect(jsonPath("$.path").value(paymentSuccessPath));
+
+        verify(paymentAttemptService).markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF);
     }
 
     @Test

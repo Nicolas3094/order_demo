@@ -3,6 +3,7 @@ package com.orders.messages.orders_demo.app.repositories;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -428,6 +429,77 @@ class PaymentRepositoryIntegrationTest extends PostgresContainer {
         entityManager.clear();
 
         assertThat(paymentRepository.findById(paymentId).orElseThrow().getVersion()).isZero();
+    }
+
+    @Test
+    void shouldRejectInsertingAnotherPaymentWithSameProviderAndProviderReference() {
+        paymentRepository.saveAndFlush(createPaymentWithProviderReference(PaymentProvider.STRIPE, "shared-provider-ref"));
+        var duplicateReferencePayment = createPaymentWithProviderReference(PaymentProvider.STRIPE, "shared-provider-ref");
+
+        assertThatThrownBy(() -> paymentRepository.saveAndFlush(duplicateReferencePayment))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void shouldRejectUpdatingAnotherPaymentToSameProviderAndProviderReference() {
+        paymentRepository.saveAndFlush(createPaymentWithProviderReference(PaymentProvider.STRIPE, "shared-provider-ref"));
+        var processingPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+
+        processingPayment.markAsSucceeded("shared-provider-ref");
+
+        assertThatThrownBy(() -> paymentRepository.saveAndFlush(processingPayment))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void shouldAllowSameProviderReferenceForDifferentProviders() {
+        var stripePayment = paymentRepository.saveAndFlush(
+                createPaymentWithProviderReference(PaymentProvider.STRIPE, "shared-provider-ref"));
+        var paypalPayment = paymentRepository.saveAndFlush(
+                createPaymentWithProviderReference(PaymentProvider.PAYPAL, "shared-provider-ref"));
+        entityManager.clear();
+
+        var persistedPayments = paymentRepository.findAllById(List.of(stripePayment.getId(), paypalPayment.getId()));
+
+        assertThat(persistedPayments).hasSize(2);
+        assertThat(persistedPayments).extracting(PaymentAttemptEntity::getProvider)
+                .containsExactlyInAnyOrder(PaymentProvider.STRIPE, PaymentProvider.PAYPAL);
+        assertThat(persistedPayments).extracting(PaymentAttemptEntity::getProviderRef).containsOnly("shared-provider-ref");
+    }
+
+    @Test
+    void shouldAllowMultiplePaymentsWithoutProviderReferenceForSameProvider() {
+        var firstPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        var secondPayment = paymentRepository.saveAndFlush(createPaymentWithStatus(PaymentStatus.PROCESSING));
+        entityManager.clear();
+
+        var persistedPayments = paymentRepository.findAllById(List.of(firstPayment.getId(), secondPayment.getId()));
+
+        assertThat(persistedPayments).hasSize(2);
+        assertThat(persistedPayments).extracting(PaymentAttemptEntity::getProvider).containsOnly(PaymentProvider.STRIPE);
+        assertThat(persistedPayments).allSatisfy(payment -> assertThat(payment.getProviderRef()).isNull());
+    }
+
+    @Test
+    void shouldAllowKeepingProviderReferenceWhenUpdatingSamePayment() {
+        var processingPayment = paymentRepository.saveAndFlush(PaymentAttemptEntity.builder()
+                .orderId(UUID.randomUUID()).provider(PaymentProvider.STRIPE).providerRef("existing-provider-ref")
+                .status(PaymentStatus.PROCESSING).amount(new BigDecimal("247.00"))
+                .idempotencyKey(UUID.randomUUID().toString()).build());
+
+        processingPayment.markAsSucceeded("existing-provider-ref");
+        paymentRepository.saveAndFlush(processingPayment);
+        entityManager.clear();
+
+        var succeededPayment = paymentRepository.findById(processingPayment.getId()).orElseThrow();
+        assertThat(succeededPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(succeededPayment.getProviderRef()).isEqualTo("existing-provider-ref");
+    }
+
+    private PaymentAttemptEntity createPaymentWithProviderReference(PaymentProvider provider, String providerReference) {
+        return PaymentAttemptEntity.builder().orderId(UUID.randomUUID()).provider(provider)
+                .status(PaymentStatus.SUCCEEDED).providerRef(providerReference)
+                .amount(new BigDecimal("247.00")).idempotencyKey(UUID.randomUUID().toString()).build();
     }
 
     private Instant setUpdatedAtInPast(UUID paymentId) {

@@ -23,7 +23,8 @@ import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPa
 
 @Entity
 @Table(name = "payment_attempt", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_idempotency_key", columnNames = "idempotency_key")
+        @UniqueConstraint(name = "uk_idempotency_key", columnNames = "idempotency_key"),
+        @UniqueConstraint(name = "uk_provider_provider_ref", columnNames = { "provider", "provider_ref" })
 })
 public class PaymentAttemptEntity {
 

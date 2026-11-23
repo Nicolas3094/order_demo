@@ -10,4 +10,7 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttemptEn
     Optional<PaymentAttemptEntity> findByIdempotencyKey(String idempotencyKey);
 
     List<PaymentAttemptEntity> findByOrderId(UUID orderId);
+
+    boolean existsByProviderAndProviderRef(PaymentProvider provider, String providerRef);
+
 }
