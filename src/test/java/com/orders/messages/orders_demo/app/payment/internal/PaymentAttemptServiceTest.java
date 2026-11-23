@@ -1,6 +1,21 @@
 package com.orders.messages.orders_demo.app.payment.internal;
 
 
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.mockito.invocation.InvocationOnMock;
+
+import java.sql.SQLException;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import jakarta.persistence.OptimisticLockException;
+import com.orders.messages.orders_demo.app.order.internal.OrderEntity;
+import org.junit.jupiter.params.provider.ValueSource;
+import static org.junit.jupiter.api.Assertions.assertSame;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +71,9 @@ public class PaymentAttemptServiceTest {
     @Mock
     private ProductInternalApi productInternalApi;
 
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
     @InjectMocks
     private PaymentAttemptService paymentAttemptService;
 
@@ -73,6 +91,7 @@ public class PaymentAttemptServiceTest {
         orderId = UUID.randomUUID();
         customerId = UUID.randomUUID();
         paymentCaptor = ArgumentCaptor.forClass(PaymentAttemptEntity.class);
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(this::executePaymentTransaction);
     }
 
     @Test
@@ -313,6 +332,122 @@ public class PaymentAttemptServiceTest {
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
     }
 
+    @Test
+    void createPaymentAttempt_WhenCommitReportsDuplicateIdempotencyKey_ShouldRecoverCommittedPayment() {
+        var duplicateKeyFailure = createConstraintFailure("uk_idempotency_key");
+
+        assertExistingPaymentReturnedAfterTransactionFailure(duplicateKeyFailure);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenOrderVersionConflicts_ShouldRecoverCommittedPayment() {
+        var staleOrderFailure = new ObjectOptimisticLockingFailureException(OrderEntity.class, orderId);
+
+        assertExistingPaymentReturnedAfterTransactionFailure(staleOrderFailure);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenJpaReportsVersionConflict_ShouldRecoverCommittedPayment() {
+        var staleOrderFailure = new OptimisticLockException("Stale order");
+
+        assertExistingPaymentReturnedAfterTransactionFailure(staleOrderFailure);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenWinningRequestAlreadyChangedOrderState_ShouldRecoverCommittedPayment() {
+        var changedOrderFailure = new InvalidOrderStateException("Only pending orders can be modified.");
+
+        assertExistingPaymentReturnedAfterTransactionFailure(changedOrderFailure);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenWinningRequestAlreadyReservedStock_ShouldRecoverCommittedPayment() {
+        assertExistingPaymentReturnedAfterTransactionFailure(new InsufficientStockException());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "uk_provider_provider_ref", "uk_product_sku" })
+    void createPaymentAttempt_WhenAnotherConstraintFails_ShouldPropagateWithoutRecovery(String constraintName) {
+        var unrelatedConstraintFailure = createConstraintFailure(constraintName);
+        doThrow(unrelatedConstraintFailure).when(transactionTemplate).execute(any());
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+
+        var actualFailure = assertThrows(DataIntegrityViolationException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
+
+        assertSame(unrelatedConstraintFailure, actualFailure);
+        verify(transactionTemplate).execute(any());
+        verifyNoInteractions(paymentAttemptRepository, orderInternalApi, customerInternalApi, productInternalApi);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenOnlyErrorTextMentionsIdempotencyConstraint_ShouldNotRecover() {
+        var unrelatedDatabaseFailure = new DataIntegrityViolationException("SQL mentions uk_idempotency_key");
+        doThrow(unrelatedDatabaseFailure).when(transactionTemplate).execute(any());
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+
+        var actualFailure = assertThrows(DataIntegrityViolationException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
+
+        assertSame(unrelatedDatabaseFailure, actualFailure);
+        verify(transactionTemplate).execute(any());
+        verifyNoInteractions(paymentAttemptRepository, orderInternalApi, customerInternalApi, productInternalApi);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenRecoveredKeyBelongsToAnotherOrder_ShouldRejectWithoutCreatingPayment() {
+        var duplicateKeyFailure = createConstraintFailure("uk_idempotency_key");
+        doThrow(duplicateKeyFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        var otherOrderPayment = createPaymentAttemptWithStatusAndOrder(UUID.randomUUID(), PaymentStatus.CREATED);
+        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY))
+                .thenReturn(Optional.of(otherOrderPayment));
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+
+        var invalidPaymentStateException = assertThrows(InvalidPaymentStateException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
+
+        assertEquals("Requested order ID is not equal to payment's order.", invalidPaymentStateException.getMessage());
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
+        verifyNoMoreInteractions(paymentAttemptRepository);
+        verifyNoInteractions(orderInternalApi, customerInternalApi, productInternalApi);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenNoCommittedPaymentExistsAfterConflict_ShouldRethrowOriginalFailure() {
+        var staleOrderFailure = new ObjectOptimisticLockingFailureException(OrderEntity.class, orderId);
+        doThrow(staleOrderFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+
+        var actualFailure = assertThrows(ObjectOptimisticLockingFailureException.class,
+                () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
+
+        assertSame(staleOrderFailure, actualFailure);
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
+        verifyNoInteractions(orderInternalApi, customerInternalApi, productInternalApi);
+    }
+
+    @Test
+    void createPaymentAttempt_WhenCallerOwnsFailedTransaction_ShouldPropagateWithoutRecovery() {
+        var duplicateKeyFailure = createConstraintFailure("uk_idempotency_key");
+        doThrow(duplicateKeyFailure).when(transactionTemplate).execute(any());
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        try {
+            var actualFailure = assertThrows(DataIntegrityViolationException.class,
+                    () -> paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest));
+
+            assertSame(duplicateKeyFailure, actualFailure);
+            verify(transactionTemplate).execute(any());
+            verifyNoInteractions(paymentAttemptRepository, orderInternalApi, customerInternalApi, productInternalApi);
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+    }
+
     /*
      * 
      * startProcessing
@@ -497,7 +632,10 @@ public class PaymentAttemptServiceTest {
     void markAsSucceeded_WhenOrderCannotBeMarkedPaid_ShouldPropagateWithoutSaving() {
         var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = processingPaymentAttempt.getId();
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
+        var paymentAfterRollback = PaymentAttemptEntity.builder().id(paymentId).orderId(orderId)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).status(PaymentStatus.PROCESSING).build();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt),
+                Optional.of(paymentAfterRollback));
         doThrow(new InvalidOrderStateException("Only pending orders can be marked as paid."))
                 .when(orderInternalApi).markAsPaid(orderId);
 
@@ -652,7 +790,10 @@ public class PaymentAttemptServiceTest {
     void markAsFailed_WhenOrderCannotReturnToPending_ShouldPropagateWithoutRestoringStock() {
         var processingPaymentAttempt = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.PROCESSING);
         paymentId = processingPaymentAttempt.getId();
-        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt));
+        var paymentAfterRollback = PaymentAttemptEntity.builder().id(paymentId).orderId(orderId)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).status(PaymentStatus.PROCESSING).build();
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.of(processingPaymentAttempt),
+                Optional.of(paymentAfterRollback));
         doThrow(new InvalidOrderStateException("Order cannot return to pending."))
                 .when(orderInternalApi).markAsPending(orderId);
 
@@ -705,7 +846,7 @@ public class PaymentAttemptServiceTest {
         assertEquals(PaymentStatus.FAILED, failedPaymentAttempt.getStatus());
         assertEquals(402, failedPaymentAttempt.getFailureCode());
         assertEquals("Declined", failedPaymentAttempt.getFailureMessage());
-        verify(paymentAttemptRepository).findById(failedPaymentAttempt.getId());
+        verify(paymentAttemptRepository, times(2)).findById(failedPaymentAttempt.getId());
         verifyNoMoreInteractions(paymentAttemptRepository);
         verifyNoInteractions(orderInternalApi, productInternalApi);
     }
@@ -794,6 +935,234 @@ public class PaymentAttemptServiceTest {
         assertEquals("Stock restoration failed.", stockRestorationException.getMessage());
         verify(orderInternalApi, never()).markAsPending(any(UUID.class));
         verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+    }
+
+    @Test
+    void markAsSucceeded_WhenCommitConflictsWithIdenticalSuccess_ShouldReturnCommittedPayment() {
+        var committedPayment = createSucceededPaymentAttempt(DEFAULT_PROVIDER_REF);
+        var stalePaymentFailure = new ObjectOptimisticLockingFailureException(PaymentAttemptEntity.class, committedPayment.getId());
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var recoveredSuccessResponse = paymentAttemptService.markAsSucceeded(orderId, committedPayment.getId(), DEFAULT_PROVIDER_REF);
+
+        assertEquals(committedPayment.getId(), recoveredSuccessResponse.id());
+        assertEquals(PaymentStatus.SUCCEEDED, recoveredSuccessResponse.status());
+        assertEquals(DEFAULT_PROVIDER_REF, recoveredSuccessResponse.providerRef());
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository).findById(committedPayment.getId());
+        verifyNoMoreInteractions(paymentAttemptRepository);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsSucceeded_WhenReferenceCheckObservesIdenticalCommittedSuccess_ShouldReturnCommittedPayment() {
+        var committedPayment = createSucceededPaymentAttempt(DEFAULT_PROVIDER_REF);
+        var concurrentReferenceFailure = new InvalidPaymentStateException("A successful payment has the same provider reference.");
+        doThrow(concurrentReferenceFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var recoveredSuccessResponse = paymentAttemptService.markAsSucceeded(orderId, committedPayment.getId(), DEFAULT_PROVIDER_REF);
+
+        assertEquals(committedPayment.getId(), recoveredSuccessResponse.id());
+        assertEquals(DEFAULT_PROVIDER_REF, recoveredSuccessResponse.providerRef());
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsFailed_WhenCommitConflictsWithIdenticalFailure_ShouldReturnCommittedPaymentWithoutRestoringStock() {
+        var committedPayment = createFailedPaymentAttempt(402, "Declined");
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var recoveredFailureResponse = paymentAttemptService.markAsFailed(orderId, committedPayment.getId(), 402, "Declined");
+
+        assertEquals(committedPayment.getId(), recoveredFailureResponse.id());
+        assertEquals(PaymentStatus.FAILED, recoveredFailureResponse.status());
+        assertEquals(402, recoveredFailureResponse.failureCode());
+        assertEquals("Declined", recoveredFailureResponse.failureMessage());
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository).findById(committedPayment.getId());
+        verifyNoMoreInteractions(paymentAttemptRepository);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsFailed_WhenOrderAlreadyReturnedToPendingForIdenticalFailure_ShouldReturnCommittedPayment() {
+        var committedPayment = createFailedPaymentAttempt(402, "Declined");
+        var changedOrderFailure = new InvalidOrderStateException("Order is already pending.");
+        doThrow(changedOrderFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var recoveredFailureResponse = paymentAttemptService.markAsFailed(orderId, committedPayment.getId(), 402, "Declined");
+
+        assertEquals(committedPayment.getId(), recoveredFailureResponse.id());
+        assertEquals(PaymentStatus.FAILED, recoveredFailureResponse.status());
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsSucceeded_WhenCommittedReferenceDiffers_ShouldPropagateOriginalConflict() {
+        var committedPayment = createSucceededPaymentAttempt("another-reference");
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var actualFailure = assertThrows(OptimisticLockException.class,
+                () -> paymentAttemptService.markAsSucceeded(orderId, committedPayment.getId(), DEFAULT_PROVIDER_REF));
+
+        assertSame(stalePaymentFailure, actualFailure);
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @ParameterizedTest
+    @CsvSource({ "500, Declined", "402, Another failure", "500, Another failure" })
+    void markAsFailed_WhenCommittedFailureDetailsDiffer_ShouldPropagateOriginalConflict(int notifiedCode, String notifiedMessage) {
+        var committedPayment = createFailedPaymentAttempt(402, "Declined");
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var actualFailure = assertThrows(OptimisticLockException.class,
+                () -> paymentAttemptService.markAsFailed(orderId, committedPayment.getId(), notifiedCode, notifiedMessage));
+
+        assertSame(stalePaymentFailure, actualFailure);
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository, never()).save(any(PaymentAttemptEntity.class));
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = "SUCCEEDED")
+    void markAsSucceeded_WhenCommittedStateIsNotSucceeded_ShouldPropagateOriginalConflict(PaymentStatus committedStatus) {
+        var committedPayment = createPaymentAttemptWithStatusAndOrder(orderId, committedStatus);
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var actualFailure = assertThrows(OptimisticLockException.class,
+                () -> paymentAttemptService.markAsSucceeded(orderId, committedPayment.getId(), DEFAULT_PROVIDER_REF));
+
+        assertSame(stalePaymentFailure, actualFailure);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PaymentStatus.class, mode = Mode.EXCLUDE, names = "FAILED")
+    void markAsFailed_WhenCommittedStateIsNotFailed_ShouldPropagateOriginalConflict(PaymentStatus committedStatus) {
+        var committedPayment = createPaymentAttemptWithStatusAndOrder(orderId, committedStatus);
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(committedPayment.getId())).thenReturn(Optional.of(committedPayment));
+
+        var actualFailure = assertThrows(OptimisticLockException.class,
+                () -> paymentAttemptService.markAsFailed(orderId, committedPayment.getId(), 402, "Declined"));
+
+        assertSame(stalePaymentFailure, actualFailure);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsSucceeded_WhenRecoveredPaymentBelongsToAnotherOrder_ShouldPropagateOriginalConflict() {
+        var anotherOrderPayment = PaymentAttemptEntity.builder().id(UUID.randomUUID()).orderId(UUID.randomUUID())
+                .status(PaymentStatus.SUCCEEDED).providerRef(DEFAULT_PROVIDER_REF).build();
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(anotherOrderPayment.getId())).thenReturn(Optional.of(anotherOrderPayment));
+
+        var actualFailure = assertThrows(OptimisticLockException.class,
+                () -> paymentAttemptService.markAsSucceeded(orderId, anotherOrderPayment.getId(), DEFAULT_PROVIDER_REF));
+
+        assertSame(stalePaymentFailure, actualFailure);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsSucceeded_WhenPaymentIsMissingAfterConflict_ShouldPropagateOriginalConflict() {
+        paymentId = UUID.randomUUID();
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        when(paymentAttemptRepository.findById(paymentId)).thenReturn(Optional.empty());
+
+        var actualFailure = assertThrows(OptimisticLockException.class,
+                () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
+
+        assertSame(stalePaymentFailure, actualFailure);
+        verifyNoInteractions(orderInternalApi, productInternalApi);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "uk_provider_provider_ref", "uk_idempotency_key" })
+    void markAsSucceeded_WhenCommitFailsForIntegrityConstraint_ShouldNotAttemptRecovery(String constraintName) {
+        var integrityFailure = createConstraintFailure(constraintName);
+        doThrow(integrityFailure).when(transactionTemplate).execute(any());
+        paymentId = UUID.randomUUID();
+
+        var actualFailure = assertThrows(DataIntegrityViolationException.class,
+                () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
+
+        assertSame(integrityFailure, actualFailure);
+        verify(transactionTemplate).execute(any());
+        verifyNoInteractions(paymentAttemptRepository, orderInternalApi, productInternalApi);
+    }
+
+    @Test
+    void markAsSucceeded_WhenCallerOwnsFailedTransaction_ShouldNotRecoverInsideIt() {
+        var stalePaymentFailure = new OptimisticLockException("Stale payment");
+        doThrow(stalePaymentFailure).when(transactionTemplate).execute(any());
+        paymentId = UUID.randomUUID();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        try {
+            var actualFailure = assertThrows(OptimisticLockException.class,
+                    () -> paymentAttemptService.markAsSucceeded(orderId, paymentId, DEFAULT_PROVIDER_REF));
+
+            assertSame(stalePaymentFailure, actualFailure);
+            verify(transactionTemplate).execute(any());
+            verifyNoInteractions(paymentAttemptRepository, orderInternalApi, productInternalApi);
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+    }
+
+    private PaymentAttemptEntity createFailedPaymentAttempt(int failureCode, String failureMessage) {
+        return PaymentAttemptEntity.builder().id(UUID.randomUUID()).orderId(orderId).status(PaymentStatus.FAILED)
+                .idempotencyKey(DEFAULT_IDEMPOTENCY_KEY).failureCode(failureCode).failureMessage(failureMessage).build();
+    }
+
+    private DataIntegrityViolationException createConstraintFailure(String constraintName) {
+        var constraintViolation = new ConstraintViolationException("Duplicate key", new SQLException("Duplicate", "23505"),
+                constraintName);
+        return new DataIntegrityViolationException("Constraint violation", constraintViolation);
+    }
+
+    private void assertExistingPaymentReturnedAfterTransactionFailure(RuntimeException creationFailure) {
+        doThrow(creationFailure).doAnswer(this::executePaymentTransaction).when(transactionTemplate).execute(any());
+        var committedPayment = createPaymentAttemptWithStatusAndOrder(orderId, PaymentStatus.CREATED);
+        when(paymentAttemptRepository.findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY)).thenReturn(Optional.of(committedPayment));
+        var createPaymentRequest = new CreatePaymentAttemptRequest(PaymentProvider.STRIPE, DEFAULT_IDEMPOTENCY_KEY);
+
+        var recoveredPaymentResponse = paymentAttemptService.createPaymentAttempt(orderId, createPaymentRequest);
+
+        assertEquals(committedPayment.getId(), recoveredPaymentResponse.id());
+        assertEquals(orderId, recoveredPaymentResponse.orderId());
+        assertEquals(DEFAULT_IDEMPOTENCY_KEY, recoveredPaymentResponse.idempotencyKey());
+        verify(transactionTemplate, times(2)).execute(any());
+        verify(paymentAttemptRepository).findByIdempotencyKey(DEFAULT_IDEMPOTENCY_KEY);
+        verifyNoMoreInteractions(paymentAttemptRepository);
+        verifyNoInteractions(orderInternalApi, customerInternalApi, productInternalApi);
+    }
+
+    private Object executePaymentTransaction(InvocationOnMock invocation) {
+        TransactionCallback<?> transactionCallback = invocation.getArgument(0);
+        return transactionCallback.doInTransaction(new SimpleTransactionStatus());
     }
 
     private void mockPaymentRepositorySave() {

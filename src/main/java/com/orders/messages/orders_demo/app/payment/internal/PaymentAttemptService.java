@@ -2,10 +2,19 @@ package com.orders.messages.orders_demo.app.payment.internal;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.hibernate.exception.ConstraintViolationException;
+import jakarta.persistence.OptimisticLockException;
 
 import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
 import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
@@ -13,11 +22,13 @@ import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 import com.orders.messages.orders_demo.app.order.api.OrderData;
 import com.orders.messages.orders_demo.app.order.api.OrderInternalApi;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.OrderNotFoundException;
+import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderStateException;
 import com.orders.messages.orders_demo.app.payment.api.CreatePaymentAttemptRequest;
 import com.orders.messages.orders_demo.app.payment.api.PaymentAttemptResponse;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.InvalidPaymentStateException;
 import com.orders.messages.orders_demo.app.payment.internal.exceptions.PaymentNotFoundException;
 import com.orders.messages.orders_demo.app.product.api.ProductInternalApi;
+import com.orders.messages.orders_demo.app.product.internal.exceptions.InsufficientStockException;
 
 import jakarta.transaction.Transactional;
 
@@ -28,14 +39,16 @@ public class PaymentAttemptService {
     private final OrderInternalApi orderInternalApi;
     private final CustomerInternalApi customerInternalApi;
     private final ProductInternalApi productInternalApi;
+    private final TransactionTemplate transactionTemplate;
 
     public PaymentAttemptService(PaymentAttemptRepository paymentAttemptRepository,
             OrderInternalApi orderInternalApi, CustomerInternalApi customerInternalApi,
-            ProductInternalApi productInternalApi) {
+            ProductInternalApi productInternalApi, TransactionTemplate transactionTemplate) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.orderInternalApi = orderInternalApi;
         this.customerInternalApi = customerInternalApi;
         this.productInternalApi = productInternalApi;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -83,21 +96,30 @@ public class PaymentAttemptService {
      * @throws InvalidPaymentStateException if the order can no longer receive
      *                                      payment attempts.
      */
-    @Transactional
     public PaymentAttemptResponse createPaymentAttempt(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
+        try {
+            return transactionTemplate.execute(status -> createPaymentInTransaction(orderId, paymentRequest));
+        } catch (RuntimeException creationFailure) {
+            // A caller-owned transaction cannot be recovered here: it must roll back as a whole.
+            if (TransactionSynchronizationManager.isActualTransactionActive()
+                    || !canRecoverPaymentCreation(creationFailure)) {
+                throw creationFailure;
+            }
 
+            // execute has already completed the rollback; this lookup starts a valid transaction.
+            return transactionTemplate.execute(status -> paymentAttemptRepository
+                    .findByIdempotencyKey(paymentRequest.idempotencyKey())
+                    .map(payment -> responseForExistingPayment(orderId, payment))
+                    .orElseThrow(() -> creationFailure));
+        }
+    }
+
+    private PaymentAttemptResponse createPaymentInTransaction(UUID orderId, CreatePaymentAttemptRequest paymentRequest) {
         Optional<PaymentAttemptEntity> paymentOpt = paymentAttemptRepository
                 .findByIdempotencyKey(paymentRequest.idempotencyKey());
 
         if (paymentOpt.isPresent()) {
-
-            boolean comesFromSameOrder = paymentOpt.get().getOrderId().equals(orderId);
-
-            if (comesFromSameOrder) {
-                return PaymentAttemptMapper.toResponse(paymentOpt.get());
-            }
-
-            throw new InvalidPaymentStateException("Requested order ID is not equal to payment's order.");
+            return responseForExistingPayment(orderId, paymentOpt.get());
         }
 
         OrderData orderData = orderInternalApi.getOrderDataForPayment(orderId);
@@ -113,6 +135,32 @@ public class PaymentAttemptService {
                         paymentRequest,
                         orderData.amountTotal(),
                         orderId)));
+    }
+
+    private PaymentAttemptResponse responseForExistingPayment(UUID orderId, PaymentAttemptEntity payment) {
+        if (!payment.getOrderId().equals(orderId)) {
+            throw new InvalidPaymentStateException("Requested order ID is not equal to payment's order.");
+        }
+        return PaymentAttemptMapper.toResponse(payment);
+    }
+
+    private boolean canRecoverPaymentCreation(RuntimeException creationFailure) {
+        if (creationFailure instanceof DataIntegrityViolationException) {
+            Throwable cause = creationFailure;
+            while (cause != null) {
+                if (cause instanceof ConstraintViolationException constraintViolation
+                        && "uk_idempotency_key".equals(constraintViolation.getConstraintName())) {
+                    return true;
+                }
+                cause = cause.getCause();
+            }
+            return false;
+        }
+        return creationFailure instanceof OptimisticLockingFailureException
+                || creationFailure instanceof OptimisticLockException
+                || creationFailure instanceof InsufficientStockException
+                || (creationFailure instanceof InvalidOrderStateException
+                        && !(creationFailure instanceof OrderNotFoundException));
     }
 
     /**
@@ -152,9 +200,14 @@ public class PaymentAttemptService {
      * @throws InvalidPaymentStateException if the payment attempt cannot transition
      *                                      to the succeeded state.
      */
-    @Transactional
     public PaymentAttemptResponse markAsSucceeded(UUID orderId, UUID paymentId, String providerRef) {
+        return executePaymentNotification(orderId, paymentId,
+                () -> markAsSucceededInTransaction(orderId, paymentId, providerRef),
+                payment -> payment.getStatus() == PaymentStatus.SUCCEEDED
+                        && Objects.equals(providerRef, payment.getProviderRef()));
+    }
 
+    private PaymentAttemptResponse markAsSucceededInTransaction(UUID orderId, UUID paymentId, String providerRef) {
         PaymentAttemptEntity payment = findPaymentAttempt(orderId, paymentId);
 
         if (PaymentStatus.SUCCEEDED.equals(payment.getStatus())) {
@@ -190,8 +243,15 @@ public class PaymentAttemptService {
      * @throws InvalidPaymentStateException if the payment attempt cannot transition
      *                                      to the failed state.
      */
-    @Transactional
     public PaymentAttemptResponse markAsFailed(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
+        return executePaymentNotification(orderId, paymentId,
+                () -> markAsFailedInTransaction(orderId, paymentId, code, errorMessage),
+                payment -> payment.getStatus() == PaymentStatus.FAILED
+                        && Objects.equals(code, payment.getFailureCode())
+                        && Objects.equals(errorMessage, payment.getFailureMessage()));
+    }
+
+    private PaymentAttemptResponse markAsFailedInTransaction(UUID orderId, UUID paymentId, Integer code, String errorMessage) {
         PaymentAttemptEntity payment = findPaymentAttempt(orderId, paymentId);
 
         if (PaymentStatus.FAILED.equals(payment.getStatus())) {
@@ -210,6 +270,34 @@ public class PaymentAttemptService {
         increaseStock(orderId);
 
         return PaymentAttemptMapper.toResponse(paymentAttemptRepository.save(payment));
+    }
+
+    private PaymentAttemptResponse executePaymentNotification(UUID orderId, UUID paymentId,
+            Supplier<PaymentAttemptResponse> notification, Predicate<PaymentAttemptEntity> matchesNotification) {
+        try {
+            return transactionTemplate.execute(status -> notification.get());
+        } catch (RuntimeException notificationFailure) {
+            if (TransactionSynchronizationManager.isActualTransactionActive()
+                    || !canRecoverPaymentNotification(notificationFailure)) {
+                throw notificationFailure;
+            }
+
+            // Re-read only after rollback. Recognizing the result must not repeat order or stock changes.
+            return transactionTemplate.execute(status -> paymentAttemptRepository.findById(paymentId)
+                    .filter(payment -> orderId.equals(payment.getOrderId()))
+                    .filter(matchesNotification)
+                    .map(PaymentAttemptMapper::toResponse)
+                    .orElseThrow(() -> notificationFailure));
+        }
+    }
+
+    private boolean canRecoverPaymentNotification(RuntimeException notificationFailure) {
+        return notificationFailure instanceof OptimisticLockingFailureException
+                || notificationFailure instanceof OptimisticLockException
+                || (notificationFailure instanceof InvalidPaymentStateException
+                        && !(notificationFailure instanceof PaymentNotFoundException))
+                || (notificationFailure instanceof InvalidOrderStateException
+                        && !(notificationFailure instanceof OrderNotFoundException));
     }
 
     /**
