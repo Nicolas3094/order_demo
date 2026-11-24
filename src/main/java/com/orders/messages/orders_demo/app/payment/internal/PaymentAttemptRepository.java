@@ -29,4 +29,14 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttemptEn
     List<UUID> findDuePaymentIds(@Param("status") PaymentStatus status,
             @Param("deadline") Instant deadline, @Param("afterId") UUID afterId, Pageable pageable);
 
+    @Transactional(readOnly = true)
+    @Query("""
+            SELECT payment.id FROM PaymentAttemptEntity payment
+            WHERE payment.status = :status AND payment.updatedAt <= :deadline
+              AND (:afterId IS NULL OR payment.id > :afterId)
+            ORDER BY payment.id ASC
+            """)
+    List<UUID> findProcessingPaymentIdsDueForReconciliation(@Param("status") PaymentStatus status,
+            @Param("deadline") Instant deadline, @Param("afterId") UUID afterId, Pageable pageable);
+
 }
