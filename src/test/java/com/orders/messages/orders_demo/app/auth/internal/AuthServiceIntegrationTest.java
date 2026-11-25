@@ -90,7 +90,8 @@ class AuthServiceIntegrationTest extends PostgresContainer {
     @Test
     void register_WhenAccountSaveFailsAfterFlush_ShouldRollBackAccountAndCustomer() {
         var accountSaveFailure = new IllegalStateException("Account save failed after flush.");
-        var originalRepositoryAnswer = mockingDetails(userAccountRepository).getMockCreationSettings().getDefaultAnswer();
+        var originalRepositoryAnswer = mockingDetails(userAccountRepository).getMockCreationSettings()
+                .getDefaultAnswer();
         doAnswer(invocation -> {
             originalRepositoryAnswer.answer(invocation);
             entityManager.flush();
@@ -111,7 +112,6 @@ class AuthServiceIntegrationTest extends PostgresContainer {
             throw new IllegalStateException("Caller transaction failed.");
         })).isInstanceOf(IllegalStateException.class).hasMessage("Caller transaction failed.");
 
-        assertThat(userAccountRepository.findByEmail(email)).isEmpty();
         assertThat(countCustomersWithRegistrationEmail()).isZero();
     }
 

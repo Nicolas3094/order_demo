@@ -1,7 +1,6 @@
 package com.orders.messages.orders_demo.app.common.api;
 
 import java.time.Instant;
-import java.util.Optional;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -9,13 +8,13 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import jakarta.persistence.OptimisticLockException;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import com.orders.messages.orders_demo.app.auth.internal.exceptions.EmailAlreadyRegisteredException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderItemStateException;
@@ -171,13 +170,30 @@ public class GlobalExceptionHandler {
         return handleInvalid(e, request);
     }
 
+    /**
+     * Returns 409 Conflict when an email is already registered.
+     *
+     * @param e       the registration conflict
+     * @param request the current HTTP request
+     * @return the standardized error response
+     */
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    public ResponseEntity<ErrorResponse> handleEmailAlreadyRegistered(
+            EmailAlreadyRegisteredException e, HttpServletRequest request) {
+        return handleInvalid(e, request);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationException(
             MethodArgumentNotValidException e,
             HttpServletRequest request) {
 
-        String message = Optional.ofNullable(e.getBindingResult())
-                .map(BindingResult::getFieldError)
+        var fieldErrors = e.getBindingResult().getFieldErrors();
+
+        String message = fieldErrors.stream()
+                .filter(fieldError -> "NotBlank".equals(fieldError.getCode()))
+                .findFirst()
+                .or(() -> fieldErrors.stream().findFirst())
                 .map(FieldError::getDefaultMessage)
                 .orElse("Bad request.");
 
