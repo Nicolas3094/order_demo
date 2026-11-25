@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
+import com.orders.messages.orders_demo.app.customer.api.CreateCustomerRequest;
 import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
 import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerMapper;
@@ -22,6 +23,15 @@ public class CustomerInternalApiImpl implements CustomerInternalApi {
     @Override
     public CustomerResponse getCustomer(UUID id) {
         return CustomerMapper.toResponse(customerRepository.findById(id).orElseThrow(CustomerNotFoundException::new));
+    }
+
+    @Override
+    public UUID createCustomer(String name, String email) {
+        return CustomerMapper.toResponse(
+                customerRepository.save(
+                        CustomerMapper.toEntity(
+                                new CreateCustomerRequest(email, name))))
+                .id();
     }
 
 }

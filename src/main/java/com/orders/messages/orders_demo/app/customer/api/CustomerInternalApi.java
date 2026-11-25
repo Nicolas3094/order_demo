@@ -18,4 +18,6 @@ public interface CustomerInternalApi {
      */
     CustomerResponse getCustomer(UUID customerId);
 
+    UUID createCustomer(String name, String email);
+
 }
