@@ -1,5 +1,7 @@
 package com.orders.messages.orders_demo.app.auth.internal;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,18 +15,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.orders.messages.orders_demo.app.PostgresContainer;
+import com.orders.messages.orders_demo.app.auth.api.LoginRequest;
 import com.orders.messages.orders_demo.app.auth.api.RegisterRequest;
+import com.orders.messages.orders_demo.app.auth.internal.exceptions.InvalidCredentialsException;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerEntity;
 import com.orders.messages.orders_demo.app.customer.internal.CustomerRepository;
+import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
 
 class AuthServiceIntegrationTest extends PostgresContainer {
-    private static final String PASSWORD = "a-long-test-password";
-    private static final String NAME = "Test Customer";
 
     @Autowired
     private AuthService authService;
@@ -35,7 +38,13 @@ class AuthServiceIntegrationTest extends PostgresContainer {
     @Autowired
     private TransactionTemplate transactionTemplate;
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private PasswordEncoder passwordEncoder;
+
+    private static final String PASSWORD = "a-long-test-password";
+    private static final String NAME = "Test Customer";
+
+    private final List<UUID> accountIds = new ArrayList<>();
+    private final List<UUID> customerIds = new ArrayList<>();
 
     private String email;
     private RegisterRequest registerRequest;
@@ -49,18 +58,28 @@ class AuthServiceIntegrationTest extends PostgresContainer {
     @AfterEach
     void cleanUp() {
         transactionTemplate.executeWithoutResult(status -> {
-            jdbcTemplate.update("DELETE FROM user_account WHERE email = ?", email);
-            jdbcTemplate.update("DELETE FROM customer WHERE email = ?", email);
+            accountIds.forEach(userAccountRepository::deleteById);
+            userAccountRepository.flush();
+            customerIds.forEach(customerRepository::deleteById);
+            customerRepository.flush();
         });
+        accountIds.clear();
+        customerIds.clear();
     }
+
+    /*
+     * REGISTER
+     */
 
     @Test
     void register_WhenRequestIsValid_ShouldPersistAccountLinkedToNewCustomer() {
+
         var userAccountResponse = authService.register(registerRequest);
+        accountIds.add(userAccountResponse.id());
 
         transactionTemplate.executeWithoutResult(status -> {
-            entityManager.clear();
             var persistedUserAccount = userAccountRepository.findById(userAccountResponse.id()).orElseThrow();
+            customerIds.add(persistedUserAccount.getCustomerId());
             var persistedCustomer = customerRepository.findById(persistedUserAccount.getCustomerId()).orElseThrow();
 
             assertThat(persistedUserAccount.getEmail()).isEqualTo(email);
@@ -70,21 +89,27 @@ class AuthServiceIntegrationTest extends PostgresContainer {
             assertThat(persistedCustomer.getName()).isEqualTo(NAME);
             assertThat(userAccountResponse.email()).isEqualTo(email);
             assertThat(userAccountResponse.role()).isEqualTo(UserRole.CUSTOMER);
+            assertThat(userAccountRepository.existsByEmail(email)).isTrue();
+            assertThat(customerRepository.existsByEmail(email)).isTrue();
         });
-        assertThat(countCustomersWithRegistrationEmail()).isEqualTo(1L);
     }
 
     @Test
-    void register_WhenCustomerCannotBeCreated_ShouldNotPersistAccountOrChangeExistingCustomer() {
+    void register_WhenEmailAlreadyBelongsToCustomer_ShouldRejectWithoutCreatingAccountOrChangingCustomer() {
         var existingCustomer = customerRepository.saveAndFlush(new CustomerEntity(email, "Existing Customer"));
+        customerIds.add(existingCustomer.getId());
 
         assertThatThrownBy(() -> authService.register(registerRequest))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
-        assertThat(userAccountRepository.findByEmail(email)).isEmpty();
-        assertThat(countCustomersWithRegistrationEmail()).isEqualTo(1L);
-        assertThat(customerRepository.findById(existingCustomer.getId()).orElseThrow().getName())
-                .isEqualTo("Existing Customer");
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(userAccountRepository.existsByEmail(email)).isFalse();
+            assertThat(customerRepository.existsByEmail(email)).isTrue();
+            var unchangedCustomer = customerRepository.findById(existingCustomer.getId()).orElseThrow();
+            assertThat(unchangedCustomer.getEmail()).isEqualTo(email);
+            assertThat(unchangedCustomer.getName()).isEqualTo("Existing Customer");
+            assertThat(unchangedCustomer.getStatus()).isEqualTo(existingCustomer.getStatus());
+        });
     }
 
     @Test
@@ -93,29 +118,164 @@ class AuthServiceIntegrationTest extends PostgresContainer {
         var originalRepositoryAnswer = mockingDetails(userAccountRepository).getMockCreationSettings()
                 .getDefaultAnswer();
         doAnswer(invocation -> {
-            originalRepositoryAnswer.answer(invocation);
+            UserAccountEntity savedUserAccount = (UserAccountEntity) originalRepositoryAnswer.answer(invocation);
             entityManager.flush();
+            accountIds.add(savedUserAccount.getId());
+            customerIds.add(savedUserAccount.getCustomerId());
             throw accountSaveFailure;
         }).when(userAccountRepository).save(any(UserAccountEntity.class));
 
         assertThatThrownBy(() -> authService.register(registerRequest)).isSameAs(accountSaveFailure);
 
-        assertThat(userAccountRepository.findByEmail(email)).isEmpty();
-        assertThat(countCustomersWithRegistrationEmail()).isZero();
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(userAccountRepository.existsByEmail(email)).isFalse();
+            assertThat(customerRepository.existsByEmail(email)).isFalse();
+        });
     }
 
     @Test
     void register_WhenCallerTransactionFails_ShouldRollBackAccountAndCustomer() {
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
-            authService.register(registerRequest);
+            var userAccountResponse = authService.register(registerRequest);
             entityManager.flush();
+            var savedUserAccount = userAccountRepository.findById(userAccountResponse.id()).orElseThrow();
+            accountIds.add(savedUserAccount.getId());
+            customerIds.add(savedUserAccount.getCustomerId());
             throw new IllegalStateException("Caller transaction failed.");
         })).isInstanceOf(IllegalStateException.class).hasMessage("Caller transaction failed.");
 
-        assertThat(countCustomersWithRegistrationEmail()).isZero();
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(userAccountRepository.existsByEmail(email)).isFalse();
+            assertThat(customerRepository.existsByEmail(email)).isFalse();
+        });
     }
 
-    private long countCustomersWithRegistrationEmail() {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM customer WHERE email = ?", Long.class, email);
+    /*
+     * LOG IN
+     */
+
+    @Test
+    void login_WhenCredentialsAreValid_ShouldReturnExistingAccountWithoutChangingIt() {
+        var loginRequest = new LoginRequest(email, PASSWORD);
+        var initialUser = persistUser();
+
+        var response = authService.login(loginRequest);
+
+        assertThat(response.id()).isEqualTo(initialUser.getId());
+        assertThat(response.email()).isEqualTo(email);
+        assertThat(response.role()).isEqualTo(UserRole.CUSTOMER);
+        assertUserAndCustomerDidNotChange(initialUser, CustomerStatus.ACTIVE);
+    }
+
+    @Test
+    void login_WhenEmailDoesNotExist_ShouldRejectWithInvalidCredentials() {
+        var loginRequest = new LoginRequest(email, PASSWORD);
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(userAccountRepository.existsByEmail(email)).isFalse();
+            assertThat(customerRepository.existsByEmail(email)).isFalse();
+        });
+    }
+
+    @Test
+    void login_WhenPasswordIsIncorrect_ShouldRejectWithoutChangingAccountOrCustomer() {
+        var loginRequest = new LoginRequest(email, "wrong_password");
+        var initialUser = persistUser();
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        assertUserAndCustomerDidNotChange(initialUser, CustomerStatus.ACTIVE);
+    }
+
+    @Test
+    void login_WhenCustomerIsBlocked_ShouldRejectWithoutChangingAccountOrCustomer() {
+        var loginRequest = new LoginRequest(email, PASSWORD);
+        var initialUser = persistUser(CustomerStatus.BLOCKED);
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        assertUserAndCustomerDidNotChange(initialUser, CustomerStatus.BLOCKED);
+    }
+
+    @Test
+    void login_WhenAssociatedCustomerDoesNotExist_ShouldRejectWithoutChangingAccount() {
+        UUID nonExistentId = UUID.randomUUID();
+        var loginRequest = new LoginRequest(email, PASSWORD);
+        var account = userAccountRepository.saveAndFlush(UserAccountEntity.builder()
+                .customerId(nonExistentId)
+                .email(email)
+                .passwordHash(passwordEncoder.encode(PASSWORD))
+                .build());
+        accountIds.add(account.getId());
+        entityManager.clear();
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var persistedUser = userAccountRepository.findById(account.getId()).orElseThrow();
+
+            assertThat(customerRepository.existsById(nonExistentId)).isFalse();
+            assertThat(persistedUser).usingRecursiveComparison().isEqualTo(account);
+        });
+    }
+
+    private void assertUserAndCustomerDidNotChange(
+            UserAccountEntity initialUser,
+            CustomerStatus initialCustomerStatus) {
+        transactionTemplate.executeWithoutResult(status -> {
+            var persistedUser = userAccountRepository.findById(initialUser.getId()).orElseThrow();
+            var persistedCustomer = customerRepository.findById(initialUser.getCustomerId()).orElseThrow();
+
+            assertThat(persistedUser).usingRecursiveComparison().isEqualTo(initialUser);
+            assertThat(persistedCustomer.getName()).isEqualTo(NAME);
+            assertThat(persistedCustomer.getEmail()).isEqualTo(email);
+            assertThat(persistedCustomer.getStatus()).isEqualTo(initialCustomerStatus);
+        });
+    }
+
+    private UserAccountEntity persistUser() {
+        return transactionTemplate.execute(action -> {
+
+            UUID customerId = customerRepository.saveAndFlush(new CustomerEntity(email, NAME)).getId();
+            customerIds.add(customerId);
+
+            var account = userAccountRepository.saveAndFlush(UserAccountEntity.builder()
+                    .customerId(customerId)
+                    .email(email)
+                    .passwordHash(passwordEncoder.encode(PASSWORD))
+                    .build());
+            accountIds.add(account.getId());
+
+            return account;
+
+        });
+    }
+
+    private UserAccountEntity persistUser(CustomerStatus status) {
+        return transactionTemplate.execute(action -> {
+
+            UUID customerId = customerRepository.saveAndFlush(new CustomerEntity(email, NAME, status)).getId();
+            customerIds.add(customerId);
+
+            var account = userAccountRepository.saveAndFlush(UserAccountEntity.builder()
+                    .customerId(customerId)
+                    .email(email)
+                    .passwordHash(passwordEncoder.encode(PASSWORD))
+                    .build());
+            accountIds.add(account.getId());
+
+            return account;
+
+        });
     }
 }

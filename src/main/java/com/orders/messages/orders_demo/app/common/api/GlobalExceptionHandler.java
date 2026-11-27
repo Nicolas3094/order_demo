@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.orders.messages.orders_demo.app.auth.internal.exceptions.EmailAlreadyRegisteredException;
+import com.orders.messages.orders_demo.app.auth.internal.exceptions.EmailNotFoundException;
+import com.orders.messages.orders_demo.app.auth.internal.exceptions.InvalidCredentialsException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerStateException;
 import com.orders.messages.orders_demo.app.order.internal.exceptions.InvalidOrderItemStateException;
@@ -37,6 +39,20 @@ import jakarta.servlet.http.HttpServletRequest;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * Handles requests for non-existing customers.
+     *
+     * @param e       the thrown {@link InvalidCredentialsException}.
+     * @param request the current HTTP request.
+     * @return a {@code 401 Unauthorized} response containing the standardized error
+     *         payload.
+     */
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCredentials(
+            InvalidCredentialsException e, HttpServletRequest request) {
+        return handleUnauthorized(e, request);
+    }
 
     /**
      * Handles requests for non-existing customers.
@@ -117,6 +133,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ProductNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleProductNotFoundException(
             ProductNotFoundException e, HttpServletRequest request) {
+        return handleNotFound(e, request);
+    }
+
+    @ExceptionHandler(EmailNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleEmailNotFoundException(
+            EmailNotFoundException e, HttpServletRequest request) {
         return handleNotFound(e, request);
     }
 
@@ -260,7 +282,7 @@ public class GlobalExceptionHandler {
 
     /**
      * Handles generic requests for non-existing objects.
-     * 
+     *
      * @param e       the runtime generic exception.
      * @param request the current HTTP request.
      * @return a {@code 404 Not Found} response containing the standardized error
@@ -280,7 +302,7 @@ public class GlobalExceptionHandler {
 
     /**
      * Handles generic requests for non-existing objects.
-     * 
+     *
      * @param e       the runtime generic exception.
      * @param request the current HTTP request.
      * @return a {@code 400 Bad request} response containing the standardized error
@@ -295,6 +317,26 @@ public class GlobalExceptionHandler {
                 request.getRequestURI());
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(response);
+    }
+
+    /**
+     * Handles generic requests for unauthorized request.
+     *
+     * @param e       the runtime generic exception.
+     * @param request the current HTTP request.
+     * @return a {@code 401 Unauthorized} response containing the standardized error
+     *         payload.
+     */
+    private static ResponseEntity<ErrorResponse> handleUnauthorized(RuntimeException e, HttpServletRequest request) {
+        ErrorResponse response = new ErrorResponse(
+                Instant.now(),
+                HttpStatus.UNAUTHORIZED.value(),
+                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                e.getMessage(),
+                request.getRequestURI());
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(response);
     }
 

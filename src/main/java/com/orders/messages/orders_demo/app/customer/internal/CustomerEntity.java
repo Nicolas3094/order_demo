@@ -50,6 +50,12 @@ public class CustomerEntity {
         this.status = CustomerStatus.ACTIVE;
     }
 
+    public CustomerEntity(String email, String name, CustomerStatus status) {
+        this.email = email;
+        this.name = name;
+        this.status = status;
+    }
+
     public CustomerEntity(UUID id, String email, String name, CustomerStatus status) {
         this.id = id;
         this.email = email;

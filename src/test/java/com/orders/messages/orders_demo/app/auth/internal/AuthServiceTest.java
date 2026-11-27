@@ -1,10 +1,11 @@
 package com.orders.messages.orders_demo.app.auth.internal;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -18,10 +19,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DataAccessResourceFailureException;
 
+import com.orders.messages.orders_demo.app.auth.api.LoginRequest;
 import com.orders.messages.orders_demo.app.auth.api.RegisterRequest;
 import com.orders.messages.orders_demo.app.auth.internal.exceptions.EmailAlreadyRegisteredException;
+import com.orders.messages.orders_demo.app.auth.internal.exceptions.InvalidCredentialsException;
 import com.orders.messages.orders_demo.app.customer.api.CustomerInternalApi;
+import com.orders.messages.orders_demo.app.customer.api.CustomerResponse;
+import com.orders.messages.orders_demo.app.customer.internal.CustomerStatus;
+import com.orders.messages.orders_demo.app.customer.internal.exceptions.CustomerNotFoundException;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
@@ -40,6 +47,10 @@ class AuthServiceTest {
 
     @InjectMocks
     private AuthService authService;
+
+    /*
+     * REGISTER
+     */
 
     @Test
     void register_WhenRequestIsValid_ShouldCreateCustomerThenSaveLinkedCustomerAccount() {
@@ -117,6 +128,132 @@ class AuthServiceTest {
         var registrationOrder = inOrder(customerInternalApi, userAccountRepository);
         registrationOrder.verify(customerInternalApi).createCustomer(NAME, EMAIL);
         registrationOrder.verify(userAccountRepository).save(any(UserAccountEntity.class));
+    }
+
+    /*
+     * LOG IN
+     */
+
+    @Test
+    void login_WhenAccountSuccessfullyLoggedIn_ShouldReturnResponse() {
+        var userAccountEntity = createSavedUserAccount();
+        var loginRequest = new LoginRequest(EMAIL, PASSWORD);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(userAccountEntity));
+        when(customerInternalApi.getCustomer(CUSTOMER_ID)).thenReturn(CustomerResponse.builder()
+                .id(CUSTOMER_ID)
+                .email(EMAIL)
+                .name(NAME)
+                .status(CustomerStatus.ACTIVE)
+                .build());
+        when(passwordEncoder.matches(PASSWORD, "encoded-password-hash")).thenReturn(true);
+
+        var result = authService.login(loginRequest);
+
+        assertThat(result.id()).isEqualTo(ACCOUNT_ID);
+        assertThat(result.email()).isEqualTo(EMAIL);
+        assertThat(result.role()).isEqualTo(UserRole.CUSTOMER);
+    }
+
+    @Test
+    void login_WhenEmailIsNotFound_ShouldThrowInvalidCredentialsException() {
+        var loginRequest = new LoginRequest(EMAIL, PASSWORD);
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verify(customerInternalApi, never()).getCustomer(any());
+        verify(passwordEncoder, never()).matches(any(), anyString());
+    }
+
+    @Test
+    void login_WhenCustomerNotFound_ShouldThrowInvalidCredentialsException() {
+        var userAccountEntity = createSavedUserAccount();
+        var loginRequest = new LoginRequest(EMAIL, PASSWORD);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(userAccountEntity));
+        when(passwordEncoder.matches(PASSWORD, "encoded-password-hash")).thenReturn(true);
+        when(customerInternalApi.getCustomer(CUSTOMER_ID)).thenThrow(new CustomerNotFoundException());
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        verify(userAccountRepository).findByEmail(EMAIL);
+        var loginOrder = inOrder(passwordEncoder, customerInternalApi);
+        loginOrder.verify(passwordEncoder).matches(PASSWORD, "encoded-password-hash");
+        loginOrder.verify(customerInternalApi).getCustomer(CUSTOMER_ID);
+    }
+
+    @Test
+    void login_WhenCustomerIsBlocked_ShouldThrowInvalidCredentialsException() {
+        var userAccountEntity = createSavedUserAccount();
+        var loginRequest = new LoginRequest(EMAIL, PASSWORD);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(userAccountEntity));
+        when(passwordEncoder.matches(PASSWORD, "encoded-password-hash")).thenReturn(true);
+        when(customerInternalApi.getCustomer(CUSTOMER_ID)).thenReturn(CustomerResponse.builder()
+                .id(CUSTOMER_ID)
+                .email(EMAIL)
+                .name(NAME)
+                .status(CustomerStatus.BLOCKED)
+                .build());
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        verify(userAccountRepository).findByEmail(EMAIL);
+        var loginOrder = inOrder(passwordEncoder, customerInternalApi);
+        loginOrder.verify(passwordEncoder).matches(PASSWORD, "encoded-password-hash");
+        loginOrder.verify(customerInternalApi).getCustomer(CUSTOMER_ID);
+    }
+
+    @Test
+    void login_WhenPasswordDoesNotMatch_ShouldThrowInvalidCredentialsException() {
+        var userAccountEntity = createSavedUserAccount();
+        var loginRequest = new LoginRequest(EMAIL, PASSWORD);
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(userAccountEntity));
+        when(passwordEncoder.matches(PASSWORD, "encoded-password-hash")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        verify(userAccountRepository).findByEmail(EMAIL);
+        verifyNoInteractions(customerInternalApi);
+    }
+
+    @Test
+    void login_WhenEmailDoesNotMatch_ShouldThrowInvalidCredentialsException() {
+        var userAccountEntity = createSavedUserAccount();
+        var loginRequest = new LoginRequest("customer2@example.com", PASSWORD);
+        when(userAccountRepository.findByEmail("customer2@example.com")).thenReturn(Optional.of(userAccountEntity));
+        when(passwordEncoder.matches(PASSWORD, "encoded-password-hash")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.login(loginRequest))
+                .isInstanceOf(InvalidCredentialsException.class)
+                .hasMessage("Invalid email or password.");
+
+        verify(userAccountRepository).findByEmail("customer2@example.com");
+        verifyNoInteractions(customerInternalApi);
+        verify(passwordEncoder).matches(PASSWORD, "encoded-password-hash");
+    }
+
+    @Test
+    void login_WhenCustomerLookupFailsUnexpectedly_ShouldPropagateOriginalFailure() {
+        var savedUserAccount = createSavedUserAccount();
+        var loginRequest = new LoginRequest(EMAIL, PASSWORD);
+        var customerLookupFailure = new DataAccessResourceFailureException("Customer database is unavailable.");
+        when(userAccountRepository.findByEmail(EMAIL)).thenReturn(Optional.of(savedUserAccount));
+        when(passwordEncoder.matches(PASSWORD, "encoded-password-hash")).thenReturn(true);
+        when(customerInternalApi.getCustomer(CUSTOMER_ID)).thenThrow(customerLookupFailure);
+
+        assertThatThrownBy(() -> authService.login(loginRequest)).isSameAs(customerLookupFailure);
+
+        var loginOrder = inOrder(passwordEncoder, customerInternalApi);
+        loginOrder.verify(passwordEncoder).matches(PASSWORD, "encoded-password-hash");
+        loginOrder.verify(customerInternalApi).getCustomer(CUSTOMER_ID);
+        verify(userAccountRepository, never()).save(any(UserAccountEntity.class));
     }
 
     private RegisterRequest createRegisterRequest() {
